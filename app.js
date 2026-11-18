@@ -66,18 +66,90 @@
         convergenceMix: 0.0
     };
 
+    // Shared Cached Document Geometry (Eliminates Per-Frame getBoundingClientRect & scrollHeight Reflows)
+    const layoutMetrics = {
+        vw: window.innerWidth,
+        vh: Math.max(1, window.innerHeight),
+        maxScroll: 1,
+        lightStages: [],
+        awards: null,
+        contact: null,
+        navRanges: []
+    };
+    const rawLightStageEls = [
+        document.getElementById('lightStageOne'),
+        document.getElementById('lightStageTwo')
+    ].filter(Boolean);
+    const rawAwardsEl = document.getElementById('awards');
+    const rawContactEl = document.getElementById('contact');
+    const rawNavLinks = Array.from(document.querySelectorAll('.primary-nav a[href^="#"]'));
+    const rawNavTargets = rawNavLinks
+        .map((link) => {
+            const el = document.querySelector(link.getAttribute('href'));
+            return el ? { link, el } : null;
+        })
+        .filter(Boolean);
+
+    function measureDocBox(el, sy) {
+        const r = el.getBoundingClientRect();
+        return { top: r.top + sy, bottom: r.bottom + sy };
+    }
+
+    function refreshLayoutMetrics() {
+        const sy = window.scrollY || window.pageYOffset || 0;
+        layoutMetrics.vw = Math.max(1, window.innerWidth);
+        layoutMetrics.vh = Math.max(1, window.innerHeight);
+        layoutMetrics.maxScroll = Math.max(1, document.documentElement.scrollHeight - layoutMetrics.vh);
+        layoutMetrics.lightStages = rawLightStageEls.map((el) => measureDocBox(el, sy));
+        layoutMetrics.awards = rawAwardsEl ? measureDocBox(rawAwardsEl, sy) : null;
+        layoutMetrics.contact = rawContactEl ? measureDocBox(rawContactEl, sy) : null;
+        layoutMetrics.navRanges = rawNavTargets.map((item) => {
+            const box = measureDocBox(item.el, sy);
+            return { link: item.link, top: box.top, bottom: box.bottom };
+        });
+    }
+
+    let metricsRafPending = false;
+    function scheduleMetricsRefresh() {
+        if (metricsRafPending) return;
+        metricsRafPending = true;
+        requestAnimationFrame(() => {
+            metricsRafPending = false;
+            refreshLayoutMetrics();
+        });
+    }
+
+    refreshLayoutMetrics();
+    window.addEventListener('load', scheduleMetricsRefresh, { once: true });
+    window.addEventListener('resize', scheduleMetricsRefresh, { passive: true });
+    if (window.ScrollTrigger) {
+        ScrollTrigger.addEventListener('refresh', scheduleMetricsRefresh);
+    }
+    if (window.ResizeObserver && document.body) {
+        let lastObservedBodyH = 0;
+        const bodyRO = new ResizeObserver((entries) => {
+            const h = entries[0] ? Math.round(entries[0].contentRect.height) : 0;
+            if (Math.abs(h - lastObservedBodyH) > 2) {
+                lastObservedBodyH = h;
+                scheduleMetricsRefresh();
+            }
+        });
+        bodyRO.observe(document.body);
+    }
+
     if (ribbonCanvas && window.THREE && window.gsap) {
         const renderer = new THREE.WebGLRenderer({
             canvas: ribbonCanvas,
             alpha: true,
             antialias: true,
+            stencil: false,
             powerPreference: 'high-performance'
         });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.85));
+        renderer.setSize(layoutMetrics.vw, layoutMetrics.vh);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 100);
+        const camera = new THREE.PerspectiveCamera(40, layoutMetrics.vw / layoutMetrics.vh, 0.1, 100);
         camera.position.set(0, 0, 15);
 
         const silkVertexShader = `
@@ -145,12 +217,20 @@
             }
         `;
 
-        const RIBBON_LENGTH_SEGS = 124;
-        const RIBBON_WIDTH_SEGS = 22;
+        const RIBBON_LENGTH_SEGS = 96;
+        const RIBBON_WIDTH_SEGS = 12;
+        const vCosLUT = new Float32Array(RIBBON_WIDTH_SEGS + 1);
+        const vSinLUT = new Float32Array(RIBBON_WIDTH_SEGS + 1);
+        for (let j = 0; j <= RIBBON_WIDTH_SEGS; j++) {
+            const vPi = (j / RIBBON_WIDTH_SEGS) * Math.PI;
+            vSinLUT[j] = Math.sin(vPi);
+            vCosLUT[j] = Math.cos(vPi) * Math.PI;
+        }
 
         function createPreallocatedRibbonGeometry() {
             const vertCount = (RIBBON_LENGTH_SEGS + 1) * (RIBBON_WIDTH_SEGS + 1);
             const positions = new Float32Array(vertCount * 3);
+            const normals = new Float32Array(vertCount * 3);
             const uvs = new Float32Array(vertCount * 2);
             const indices = [];
 
@@ -178,13 +258,15 @@
             geo.setIndex(indices);
             const posAttr = new THREE.BufferAttribute(positions, 3);
             posAttr.setUsage(THREE.DynamicDrawUsage);
+            const normAttr = new THREE.BufferAttribute(normals, 3);
+            normAttr.setUsage(THREE.DynamicDrawUsage);
             geo.setAttribute('position', posAttr);
+            geo.setAttribute('normal', normAttr);
             geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
             return geo;
         }
 
-        // Reusable Parallel Transport (Bishop) frame buffers — eliminates Three.js
-        // computeFrenetFrames() axis-threshold flips that caused periodic scroll jumps
+        // Zero-allocation Parallel Transport (Bishop) + Analytical Catmull-Rom Evaluator
         const ptPoints = Array.from({ length: RIBBON_LENGTH_SEGS + 1 }, () => new THREE.Vector3());
         const ptTangents = Array.from({ length: RIBBON_LENGTH_SEGS + 1 }, () => new THREE.Vector3());
         const ptNormals = Array.from({ length: RIBBON_LENGTH_SEGS + 1 }, () => new THREE.Vector3());
@@ -192,29 +274,67 @@
         const ptRefZ = new THREE.Vector3(0, 0, 1);
         const ptQuat = new THREE.Quaternion();
 
-        function updateRibbonBufferInPlace(geo, curve, width, twistTurns, twistPhase) {
+        function sampleCatmullRomZeroAlloc(pts, u, outPt, outTan) {
+            const maxSeg = pts.length - 1;
+            const scaled = u * maxSeg;
+            const seg = scaled >= maxSeg ? maxSeg - 1 : scaled | 0;
+            const t = scaled - seg;
+            const t2 = t * t;
+
+            const p1 = pts[seg];
+            const p2 = pts[seg + 1];
+            const p0x = seg === 0 ? 2 * p1.x - p2.x : pts[seg - 1].x;
+            const p0y = seg === 0 ? 2 * p1.y - p2.y : pts[seg - 1].y;
+            const p0z = seg === 0 ? 2 * p1.z - p2.z : pts[seg - 1].z;
+
+            const next2 = seg + 2;
+            const p3x = next2 > maxSeg ? 2 * p2.x - p1.x : pts[next2].x;
+            const p3y = next2 > maxSeg ? 2 * p2.y - p1.y : pts[next2].y;
+            const p3z = next2 > maxSeg ? 2 * p2.z - p1.z : pts[next2].z;
+
+            const c1x = 0.5 * (p2.x - p0x);
+            const c1y = 0.5 * (p2.y - p0y);
+            const c1z = 0.5 * (p2.z - p0z);
+
+            const c2x = p0x - 2.5 * p1.x + 2.0 * p2.x - 0.5 * p3x;
+            const c2y = p0y - 2.5 * p1.y + 2.0 * p2.y - 0.5 * p3y;
+            const c2z = p0z - 2.5 * p1.z + 2.0 * p2.z - 0.5 * p3z;
+
+            const c3x = -0.5 * p0x + 1.5 * p1.x - 1.5 * p2.x + 0.5 * p3x;
+            const c3y = -0.5 * p0y + 1.5 * p1.y - 1.5 * p2.y + 0.5 * p3y;
+            const c3z = -0.5 * p0z + 1.5 * p1.z - 1.5 * p2.z + 0.5 * p3z;
+
+            outPt.set(
+                p1.x + t * (c1x + t * (c2x + t * c3x)),
+                p1.y + t * (c1y + t * (c2y + t * c3y)),
+                p1.z + t * (c1z + t * (c2z + t * c3z))
+            );
+            outTan.set(
+                c1x + 2.0 * t * c2x + 3.0 * t2 * c3x,
+                c1y + 2.0 * t * c2y + 3.0 * t2 * c3y,
+                c1z + 2.0 * t * c2z + 3.0 * t2 * c3z
+            ).normalize();
+        }
+
+        function updateRibbonBufferInPlace(geo, pts, width, twistTurns, twistPhase) {
             for (let i = 0; i <= RIBBON_LENGTH_SEGS; i++) {
-                const u = i / RIBBON_LENGTH_SEGS;
-                curve.getPoint(u, ptPoints[i]);
-                curve.getTangent(u, ptTangents[i]);
-                ptTangents[i].normalize();
+                sampleCatmullRomZeroAlloc(pts, i / RIBBON_LENGTH_SEGS, ptPoints[i], ptTangents[i]);
             }
 
-            // Seed frame at i = 0 from fixed +Z reference (never collinear with downward tangent)
             ptBinormals[0].crossVectors(ptTangents[0], ptRefZ).normalize();
             ptNormals[0].crossVectors(ptBinormals[0], ptTangents[0]).normalize();
 
-            // Parallel-transport frame smoothly down the curve without torsion discontinuities
             for (let i = 1; i <= RIBBON_LENGTH_SEGS; i++) {
                 ptQuat.setFromUnitVectors(ptTangents[i - 1], ptTangents[i]);
                 ptNormals[i].copy(ptNormals[i - 1]).applyQuaternion(ptQuat);
-                // Gram-Schmidt re-orthonormalization for numerical stability
                 ptNormals[i].addScaledVector(ptTangents[i], -ptNormals[i].dot(ptTangents[i])).normalize();
                 ptBinormals[i].crossVectors(ptTangents[i], ptNormals[i]).normalize();
             }
 
             const posAttr = geo.attributes.position;
+            const normAttr = geo.attributes.normal;
             const positions = posAttr.array;
+            const normals = normAttr.array;
             let pIdx = 0;
 
             for (let i = 0; i <= RIBBON_LENGTH_SEGS; i++) {
@@ -236,26 +356,39 @@
                 const rBz = -N.z * sinA + B.z * cosA;
 
                 const localW = width * (0.58 + 0.52 * Math.sin(u * Math.PI));
+                const spanW = 2.0 * localW;
+                const archAmp = 0.26 * Math.cos(u * Math.PI * 3.0 + twistPhase);
 
                 for (let j = 0; j <= RIBBON_WIDTH_SEGS; j++) {
                     const v = j / RIBBON_WIDTH_SEGS;
-                    const across = (v - 0.5) * 2.0 * localW;
-                    const foldArch = Math.sin(v * Math.PI) * 0.26 * Math.cos(u * Math.PI * 3.0 + twistPhase);
+                    const across = (v - 0.5) * spanW;
+                    const foldArch = vSinLUT[j] * archAmp;
 
-                    positions[pIdx++] = P.x + rNx * across + rBx * foldArch;
-                    positions[pIdx++] = P.y + rNy * across + rBy * foldArch;
-                    positions[pIdx++] = P.z + rNz * across + rBz * foldArch;
+                    positions[pIdx] = P.x + rNx * across + rBx * foldArch;
+                    positions[pIdx + 1] = P.y + rNy * across + rBy * foldArch;
+                    positions[pIdx + 2] = P.z + rNz * across + rBz * foldArch;
+
+                    // Exact analytical surface normal (eliminates expensive CPU triangle normal pass)
+                    const dArchDv = vCosLUT[j] * archAmp;
+                    let nx = rBx * spanW - rNx * dArchDv;
+                    let ny = rBy * spanW - rNy * dArchDv;
+                    let nz = rBz * spanW - rNz * dArchDv;
+                    const invLen = 1.0 / (Math.sqrt(nx * nx + ny * ny + nz * nz) || 1.0);
+                    normals[pIdx] = nx * invLen;
+                    normals[pIdx + 1] = ny * invLen;
+                    normals[pIdx + 2] = nz * invLen;
+                    pIdx += 3;
                 }
             }
 
             posAttr.needsUpdate = true;
-            geo.computeVertexNormals();
+            normAttr.needsUpdate = true;
         }
 
         function getRightCorridorX() {
-            const aspect = window.innerWidth / window.innerHeight;
+            const aspect = layoutMetrics.vw / layoutMetrics.vh;
             const halfVisibleW = Math.tan((40 * Math.PI) / 360) * 15 * aspect;
-            return window.innerWidth < 900 ? halfVisibleW * 0.90 : halfVisibleW * 0.79;
+            return layoutMetrics.vw < 900 ? halfVisibleW * 0.90 : halfVisibleW * 0.79;
         }
 
         const strandSpecs = [
@@ -297,7 +430,6 @@
         const controlCount = 8;
         const strands = strandSpecs.map((spec, idx) => {
             const pts = Array.from({ length: controlCount }, () => new THREE.Vector3());
-            const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5);
             const mat = new THREE.ShaderMaterial({
                 vertexShader: silkVertexShader,
                 fragmentShader: silkFragmentShader,
@@ -316,15 +448,8 @@
             const mesh = new THREE.Mesh(createPreallocatedRibbonGeometry(), mat);
             mesh.frustumCulled = false;
             scene.add(mesh);
-            return { spec, pts, curve, mesh, idx };
+            return { spec, pts, mesh, idx };
         });
-
-        const lightStageEls = [
-            document.getElementById('lightStageOne'),
-            document.getElementById('lightStageTwo')
-        ].filter(Boolean);
-        const awardsSectionEl = document.getElementById('awards');
-        const contactSectionEl = document.getElementById('contact');
 
         function smoothRange(edge0, edge1, x) {
             const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
@@ -335,30 +460,33 @@
         let targetAwardsRetreat = 0.0;
         let targetConvergence = 0.0;
 
-        function syncRibbonTargetsFromDOM() {
-            const vh = Math.max(1, window.innerHeight);
-            const maxScroll = Math.max(1, document.documentElement.scrollHeight - vh);
-            ribbonState.scrollProgress = Math.min(1, Math.max(0, (window.scrollY || 0) / maxScroll));
+        function syncRibbonTargetsZeroReflow() {
+            const sy = lenis ? lenis.scroll : (window.scrollY || 0);
+            const vh = layoutMetrics.vh;
+            ribbonState.scrollProgress = Math.min(1, Math.max(0, sy / layoutMetrics.maxScroll));
 
             let lightWeight = 0.0;
-            for (let i = 0; i < lightStageEls.length; i++) {
-                const r = lightStageEls[i].getBoundingClientRect();
-                const enter = smoothRange(vh * 0.82, vh * 0.28, r.top);
-                const exit = 1.0 - smoothRange(vh * 0.72, vh * 0.18, r.bottom);
+            const ls = layoutMetrics.lightStages;
+            for (let i = 0; i < ls.length; i++) {
+                const top = ls[i].top - sy;
+                const bottom = ls[i].bottom - sy;
+                const enter = smoothRange(vh * 0.82, vh * 0.28, top);
+                const exit = 1.0 - smoothRange(vh * 0.72, vh * 0.18, bottom);
                 lightWeight = Math.max(lightWeight, enter * exit);
             }
             targetDarkMix = 1.0 - lightWeight;
 
-            if (awardsSectionEl) {
-                const ar = awardsSectionEl.getBoundingClientRect();
-                const awEnter = smoothRange(vh * 0.85, vh * 0.25, ar.top);
-                const awExit = 1.0 - smoothRange(vh * 0.75, vh * 0.15, ar.bottom);
+            if (layoutMetrics.awards) {
+                const awTop = layoutMetrics.awards.top - sy;
+                const awBottom = layoutMetrics.awards.bottom - sy;
+                const awEnter = smoothRange(vh * 0.85, vh * 0.25, awTop);
+                const awExit = 1.0 - smoothRange(vh * 0.75, vh * 0.15, awBottom);
                 targetAwardsRetreat = awEnter * awExit;
             }
 
-            if (contactSectionEl) {
-                const cr = contactSectionEl.getBoundingClientRect();
-                targetConvergence = smoothRange(vh * 0.90, vh * 0.25, cr.top);
+            if (layoutMetrics.contact) {
+                const cTop = layoutMetrics.contact.top - sy;
+                targetConvergence = smoothRange(vh * 0.90, vh * 0.25, cTop);
             }
         }
 
@@ -370,8 +498,8 @@
 
         if (!prefersReducedMotion) {
             window.addEventListener('pointermove', (e) => {
-                targetRibbonPtrX = (e.clientX / Math.max(1, window.innerWidth) - 0.5) * 2.0;
-                targetRibbonPtrY = (e.clientY / Math.max(1, window.innerHeight) - 0.5) * 2.0;
+                targetRibbonPtrX = (e.clientX / layoutMetrics.vw - 0.5) * 2.0;
+                targetRibbonPtrY = (e.clientY / layoutMetrics.vh - 0.5) * 2.0;
             }, { passive: true });
         }
 
@@ -380,8 +508,8 @@
             const scrollPhase = smoothScrollProg * Math.PI * 7.0;
             const journeyExcursion = Math.sin(smoothScrollProg * Math.PI * 3.0) * 0.52;
 
-            strands.forEach((strand) => {
-                const { spec, pts, curve, idx, mesh } = strand;
+            for (let s = 0; s < strands.length; s++) {
+                const { spec, pts, idx, mesh } = strands[s];
                 mesh.material.uniforms.uDarkMix.value = ribbonState.darkModeMix;
                 mesh.material.uniforms.uBaseOpacity.value =
                     spec.opacity * (1.0 - ribbonState.awardsRetreat * 0.35);
@@ -397,7 +525,6 @@
                     const finaleSweep = ribbonState.convergenceMix * Math.sin(vNorm * Math.PI * 1.5) * -1.85;
                     const awardsShift = ribbonState.awardsRetreat * 1.45;
 
-                    // Subtle tactile silk ripple driven by cursor position
                     const bellMask = Math.sin(vNorm * Math.PI);
                     const cursorRippleX = smoothRibbonPtrX * 0.36 * bellMask * (1.0 - idx * 0.16);
                     const cursorRippleZ = -smoothRibbonPtrY * 0.32 * Math.sin(vNorm * Math.PI * 2.0 + idx * 0.7);
@@ -411,12 +538,12 @@
                 const dynamicTwist = spec.twist + Math.sin(scrollPhase * 0.4 + idx) * 0.55 + smoothRibbonPtrY * 0.14;
                 updateRibbonBufferInPlace(
                     mesh.geometry,
-                    curve,
+                    pts,
                     spec.width,
                     dynamicTwist,
                     scrollPhase * 0.68 + idx * 1.2 + smoothRibbonPtrX * 0.24
                 );
-            });
+            }
 
             camera.position.x = smoothRibbonPtrX * 0.16;
             camera.position.y = Math.sin(smoothScrollProg * Math.PI * 2.0) * 0.24 - smoothRibbonPtrY * 0.14;
@@ -424,9 +551,8 @@
             renderer.render(scene, camera);
         }
 
-        function renderRibbonLoop() {
-            requestAnimationFrame(renderRibbonLoop);
-            syncRibbonTargetsFromDOM();
+        function tickRibbon() {
+            syncRibbonTargetsZeroReflow();
 
             if (smoothScrollProg < 0) {
                 smoothScrollProg = ribbonState.scrollProgress;
@@ -462,14 +588,15 @@
             }
         }
 
-        renderRibbonLoop();
+        // Unify Ribbon updates directly onto gsap.ticker (eliminates competing RAF loops)
+        gsap.ticker.add(tickRibbon);
 
         window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.aspect = layoutMetrics.vw / layoutMetrics.vh;
             camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setSize(layoutMetrics.vw, layoutMetrics.vh);
             updateRibbonGeometry();
-        });
+        }, { passive: true });
     }
 
     // ------------------------------------------------------------------------
@@ -505,10 +632,14 @@
         const awRenderer = new THREE.WebGLRenderer({
             canvas: awardsCanvas,
             alpha: true,
-            antialias: true
+            antialias: true,
+            stencil: false,
+            powerPreference: 'high-performance'
         });
         awRenderer.shadowMap.enabled = true;
         awRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        awRenderer.shadowMap.autoUpdate = false;
+        awRenderer.shadowMap.needsUpdate = true;
         awRenderer.toneMapping = THREE.ACESFilmicToneMapping;
         awRenderer.toneMappingExposure = 1.22;
 
@@ -517,7 +648,7 @@
             const w = stageEl ? stageEl.clientWidth : window.innerWidth;
             const h = stageEl ? stageEl.clientHeight : window.innerHeight;
             awRenderer.setSize(w, h);
-            awRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            awRenderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.65));
             return { w, h };
         };
         const initDim = setAwardsSize();
@@ -535,8 +666,8 @@
         keySpot.angle = Math.PI / 3.6;
         keySpot.penumbra = 0.72;
         keySpot.castShadow = true;
-        keySpot.shadow.mapSize.width = 2048;
-        keySpot.shadow.mapSize.height = 2048;
+        keySpot.shadow.mapSize.width = 1024;
+        keySpot.shadow.mapSize.height = 1024;
         keySpot.shadow.bias = -0.0003;
         awScene.add(keySpot);
 
@@ -1299,8 +1430,18 @@
         let targetAwPtrX = 0;
         let targetAwPtrY = 0;
         let awPtrRafPending = false;
+        let isAwardsVisible = true;
+        let cachedStageRect = stageEl ? stageEl.getBoundingClientRect() : { left: 0, top: 0, width: 1, height: 1 };
 
-        const renderAwardsFrame = () => {
+        if (stageEl && window.IntersectionObserver) {
+            const awIO = new IntersectionObserver((entries) => {
+                isAwardsVisible = Boolean(entries[0] && entries[0].isIntersecting);
+            }, { rootMargin: '200px 0px' });
+            awIO.observe(stageEl);
+        }
+
+        const renderAwardsFrame = (refreshShadow = true) => {
+            if (refreshShadow) awRenderer.shadowMap.needsUpdate = true;
             keySpot.position.x = 5.4 + pointerNormX * 1.85;
             keySpot.position.y = 10.2 - pointerNormY * 1.05;
             awCamera.position.x = galleryOffsetX * 0.18 + pointerNormX * 0.34;
@@ -1309,12 +1450,16 @@
         };
 
         const tickAwardsPointer = () => {
+            if (!isAwardsVisible) {
+                awPtrRafPending = false;
+                return;
+            }
             const dx = targetAwPtrX - pointerNormX;
             const dy = targetAwPtrY - pointerNormY;
             if (Math.abs(dx) > 0.001 || Math.abs(dy) > 0.001) {
                 pointerNormX += dx * 0.12;
                 pointerNormY += dy * 0.12;
-                renderAwardsFrame();
+                renderAwardsFrame(false);
                 requestAnimationFrame(tickAwardsPointer);
             } else {
                 awPtrRafPending = false;
@@ -1322,10 +1467,13 @@
         };
 
         if (stageEl && !prefersReducedMotion) {
+            stageEl.addEventListener('pointerenter', () => {
+                cachedStageRect = stageEl.getBoundingClientRect();
+            }, { passive: true });
             stageEl.addEventListener('pointermove', (e) => {
-                const rect = stageEl.getBoundingClientRect();
-                targetAwPtrX = ((e.clientX - rect.left) / Math.max(1, rect.width) - 0.5) * 2;
-                targetAwPtrY = ((e.clientY - rect.top) / Math.max(1, rect.height) - 0.5) * 2;
+                if (!isAwardsVisible) return;
+                targetAwPtrX = ((e.clientX - cachedStageRect.left) / Math.max(1, cachedStageRect.width) - 0.5) * 2;
+                targetAwPtrY = ((e.clientY - cachedStageRect.top) / Math.max(1, cachedStageRect.height) - 0.5) * 2;
                 if (!awPtrRafPending) {
                     awPtrRafPending = true;
                     requestAnimationFrame(tickAwardsPointer);
@@ -1344,7 +1492,7 @@
                     start: 'top 85%',
                     end: 'top top',
                     scrub: true,
-                    onUpdate: renderAwardsFrame
+                    onUpdate: () => renderAwardsFrame(true)
                 }
             }
         );
@@ -1359,7 +1507,7 @@
                 onUpdate: (self) => {
                     const idx = Math.min(3, Math.floor(self.progress * 4));
                     setReadout(idx);
-                    renderAwardsFrame();
+                    renderAwardsFrame(true);
                 }
             }
         });
@@ -1378,7 +1526,7 @@
                         window.scrollTo({ top: targetScrollY, behavior: 'smooth' });
                     }
                 }
-                renderAwardsFrame();
+                renderAwardsFrame(true);
             });
         });
 
@@ -1422,53 +1570,60 @@
             2.9
         );
 
-        renderAwardsFrame();
+        renderAwardsFrame(true);
 
         window.addEventListener('resize', () => {
             const { w, h } = setAwardsSize();
+            if (stageEl) cachedStageRect = stageEl.getBoundingClientRect();
             awCamera.aspect = w / h;
             awCamera.updateProjectionMatrix();
-            renderAwardsFrame();
-        });
+            renderAwardsFrame(true);
+        }, { passive: true });
     }
 
     // ------------------------------------------------------------------------
     // 4. HEADER ADAPTATION, ACTIVE SECTION SPY & TOP PROGRESS HAIRLINE
+    //    (Zero Layout Reads During Scroll — Powered by Cached layoutMetrics)
     // ------------------------------------------------------------------------
     const header = document.getElementById('editorialHeader');
     const progressLine = document.getElementById('scrollHairlineProgress');
-    const navLinks = Array.from(document.querySelectorAll('.primary-nav a[href^="#"]'));
-    const navTargets = navLinks
-        .map((link) => {
-            const el = document.querySelector(link.getAttribute('href'));
-            return el ? { link, el } : null;
-        })
-        .filter(Boolean);
+    let lastActiveNavLink = null;
+    let lastHeaderCondensed = false;
+    let lastHairlineScale = -1;
 
-    function updateActiveNavSpy() {
-        const probeY = window.innerHeight * 0.34;
+    function updateHeaderAndSpyZeroReflow(sy) {
+        const scale = Math.min(1, Math.max(0, sy / layoutMetrics.maxScroll));
+        if (progressLine && Math.abs(scale - lastHairlineScale) > 0.0004) {
+            lastHairlineScale = scale;
+            progressLine.style.transform = `scaleX(${scale.toFixed(4)})`;
+        }
+
+        const condensed = sy > 48;
+        if (header && condensed !== lastHeaderCondensed) {
+            lastHeaderCondensed = condensed;
+            header.classList.toggle('is-condensed', condensed);
+        }
+
+        const probeDocY = sy + layoutMetrics.vh * 0.34;
+        const minBottomDocY = sy + 80;
         let activeLink = null;
-        for (let i = 0; i < navTargets.length; i++) {
-            const rect = navTargets[i].el.getBoundingClientRect();
-            if (rect.top <= probeY && rect.bottom >= 80) {
-                activeLink = navTargets[i].link;
+        const ranges = layoutMetrics.navRanges;
+        for (let i = 0; i < ranges.length; i++) {
+            if (ranges[i].top <= probeDocY && ranges[i].bottom >= minBottomDocY) {
+                activeLink = ranges[i].link;
             }
         }
-        navLinks.forEach((l) => l.classList.toggle('is-active', l === activeLink));
+        if (activeLink !== lastActiveNavLink) {
+            if (lastActiveNavLink) lastActiveNavLink.classList.remove('is-active');
+            if (activeLink) activeLink.classList.add('is-active');
+            lastActiveNavLink = activeLink;
+        }
     }
 
     window.addEventListener('scroll', () => {
-        const y = window.scrollY || 0;
-        const max = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
-        if (progressLine) {
-            progressLine.style.width = ((y / max) * 100).toFixed(2) + '%';
-        }
-        if (header) {
-            header.classList.toggle('is-condensed', y > 48);
-        }
-        updateActiveNavSpy();
+        updateHeaderAndSpyZeroReflow(window.scrollY || 0);
     }, { passive: true });
-    updateActiveNavSpy();
+    updateHeaderAndSpyZeroReflow(window.scrollY || 0);
 
     if (window.ScrollTrigger) {
         ['#lightStageOne', '#lightStageTwo'].forEach((sel) => {
@@ -1923,20 +2078,25 @@
     const cursorPill = document.getElementById('editorialCursorPill');
 
     if (finePointer && !prefersReducedMotion) {
-        // Gentle magnetic pull on primary buttons & header CTA
+        // Gentle magnetic pull on primary buttons & header CTA (cached rect on pointerenter — zero reflow on move)
         document.querySelectorAll('.btn-primary-editorial, .header-cta').forEach((btn) => {
+            let btnRect = null;
+            btn.addEventListener('pointerenter', () => {
+                btnRect = btn.getBoundingClientRect();
+            }, { passive: true });
             btn.addEventListener('pointermove', (e) => {
-                const r = btn.getBoundingClientRect();
-                const mx = ((e.clientX - r.left) / r.width - 0.5) * 11;
-                const my = ((e.clientY - r.top) / r.height - 0.5) * 9;
+                if (!btnRect) btnRect = btn.getBoundingClientRect();
+                const mx = ((e.clientX - btnRect.left) / Math.max(1, btnRect.width) - 0.5) * 11;
+                const my = ((e.clientY - btnRect.top) / Math.max(1, btnRect.height) - 0.5) * 9;
                 btn.style.transform = `translate3d(${mx.toFixed(1)}px, ${my.toFixed(1)}px, 0)`;
-            });
+            }, { passive: true });
             btn.addEventListener('pointerleave', () => {
+                btnRect = null;
                 btn.style.transform = '';
-            });
+            }, { passive: true });
         });
 
-        // Contextual Editorial Cursor Pill over inspectable visuals, linked logos & blog cards
+        // Contextual Editorial Cursor Pill over inspectable visuals, linked logos & blog cards (RAF-coalesced hit test)
         if (cursorPill) {
             document.querySelectorAll('.brand-mark-tile[data-case-target]').forEach((el) => {
                 el.setAttribute('data-cursor-label', 'View Mandate ↓');
@@ -1951,6 +2111,8 @@
             let targetPillY = -200;
             let pillVisible = false;
             let pillRaf = false;
+            let latestPtrTarget = null;
+            let hitCheckQueued = false;
 
             const stepCursorPill = () => {
                 pillX += (targetPillX - pillX) * 0.22;
@@ -1963,10 +2125,9 @@
                 }
             };
 
-            window.addEventListener('pointermove', (e) => {
-                targetPillX = e.clientX;
-                targetPillY = e.clientY;
-                const labeled = e.target && e.target.closest ? e.target.closest('[data-cursor-label]') : null;
+            const evaluatePointerLabel = () => {
+                hitCheckQueued = false;
+                const labeled = latestPtrTarget && latestPtrTarget.closest ? latestPtrTarget.closest('[data-cursor-label]') : null;
                 if (labeled && (!lightboxEl || !lightboxEl.classList.contains('is-open'))) {
                     const label = labeled.getAttribute('data-cursor-label');
                     if (cursorPill.textContent !== label) cursorPill.textContent = label;
@@ -1981,6 +2142,16 @@
                 } else if (pillVisible) {
                     pillVisible = false;
                     cursorPill.classList.remove('is-visible');
+                }
+            };
+
+            window.addEventListener('pointermove', (e) => {
+                targetPillX = e.clientX;
+                targetPillY = e.clientY;
+                latestPtrTarget = e.target;
+                if (!hitCheckQueued) {
+                    hitCheckQueued = true;
+                    requestAnimationFrame(evaluatePointerLabel);
                 }
             }, { passive: true });
         }
@@ -2025,7 +2196,8 @@
                 ease: 'power3.out',
                 scrollTrigger: {
                     trigger: el,
-                    start: 'top 87%'
+                    start: 'top 87%',
+                    once: true
                 }
             });
         });
