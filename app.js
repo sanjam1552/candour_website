@@ -1652,6 +1652,9 @@
     const brandCountLabel = document.getElementById('portfolioCountLabel');
     const workTabs = document.querySelectorAll('#work .work-filter-nav .filter-tab');
     const workItems = Array.from(document.querySelectorAll('#work [data-work-category]'));
+    const workTallyEl = document.getElementById('workActiveTally');
+    const workArchiveHeader = document.getElementById('workArchiveHeader');
+    const workArchiveGrid = document.getElementById('workArchiveGrid');
 
     filterButtons.forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -1686,13 +1689,27 @@
     function applyWorkFilter(selected) {
         workTabs.forEach((t) => t.classList.toggle('active', t.getAttribute('data-work-filter') === selected));
         const shownWork = [];
+        let shownArchiveCount = 0;
 
         workItems.forEach((item) => {
             const cats = (item.getAttribute('data-work-category') || '').split(' ');
             const match = selected === 'all' || cats.includes(selected);
             item.style.display = match ? '' : 'none';
-            if (match) shownWork.push(item);
+            if (match) {
+                shownWork.push(item);
+                if (item.classList.contains('archive-project-card')) {
+                    shownArchiveCount += 1;
+                }
+            }
         });
+
+        if (workArchiveHeader) workArchiveHeader.style.display = shownArchiveCount > 0 ? '' : 'none';
+        if (workArchiveGrid) workArchiveGrid.style.display = shownArchiveCount > 0 ? '' : 'none';
+
+        if (workTallyEl) {
+            const noun = shownWork.length === 1 ? 'Verified Mandate' : 'Verified Mandates';
+            workTallyEl.textContent = `Showing ${shownWork.length} ${noun}`;
+        }
 
         if (!prefersReducedMotion && window.gsap && shownWork.length) {
             gsap.fromTo(
@@ -1762,9 +1779,7 @@
 
     const gallerySelector = [
         '.approach-visual-stack img',
-        '.editorial-artefact img',
-        '.employer-visual-pair img',
-        '.employer-case-card .artefact-visual-frame img',
+        '.dossier-cinema-frame img',
         '.archive-card-img img'
     ].join(', ');
 
@@ -1782,14 +1797,18 @@
         let caption = img.getAttribute('alt') || '';
 
         if (employerCard) {
-            kicker = 'Employer Branding Campaign';
+            kicker = '06 · Employer Branding Campaign';
             const h4 = employerCard.querySelector('h4');
+            const outcomeP = employerCard.querySelector('.story-step.is-outcome p');
             if (h4) title = h4.textContent.trim();
+            if (outcomeP) caption = outcomeP.textContent.trim();
         } else if (dossier) {
-            const metaSpan = dossier.querySelector('.dossier-meta-bar span');
+            const metaSpan = dossier.querySelector('.dossier-index-cluster');
             const h3 = dossier.querySelector('.dossier-headline');
-            if (metaSpan) kicker = metaSpan.textContent.trim();
+            const outcomeP = dossier.querySelector('.story-step.is-outcome p');
+            if (metaSpan) kicker = metaSpan.textContent.replace(/\s+/g, ' ').trim();
             if (h3) title = h3.textContent.trim();
+            if (outcomeP) caption = outcomeP.textContent.trim();
         } else if (archiveCard) {
             kicker = 'Selected Portfolio Mandate';
             const h4 = archiveCard.querySelector('h4');
