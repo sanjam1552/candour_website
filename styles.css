@@ -1979,6 +1979,14 @@ button {
     pointer-events: none;
 }
 
+.awards-3d-showcase .kicker {
+    color: rgba(249, 245, 248, 0.78);
+}
+
+.awards-3d-showcase .lead-editorial {
+    color: rgba(249, 245, 248, 0.86);
+}
+
 .awards-pinned-stage {
     position: relative;
     z-index: 3;
@@ -1987,7 +1995,7 @@ button {
     min-height: 700px;
     overflow: hidden;
     display: grid;
-    grid-template-columns: 0.40fr 0.60fr;
+    grid-template-columns: minmax(320px, 395px) 1fr;
     align-items: center;
     padding: 5.5rem var(--ribbon-safe-right) 4rem 5.5vw;
 }
@@ -2004,54 +2012,58 @@ button {
 .awards-narrative-col {
     position: relative;
     z-index: 4;
-    max-width: 460px;
+    max-width: 395px;
 }
 
 .awards-narrative-col .display-serif {
-    font-size: clamp(2.6rem, 4.3vw, 4.1rem);
-    color: var(--pearl);
+    font-size: clamp(2.55rem, 4.1vw, 3.95rem);
+    color: #ffffff;
 }
 
 .active-trophy-readout {
-    margin-top: 2rem;
-    padding-top: 1.65rem;
-    border-top: 1px solid var(--hairline-dark);
-    min-height: 170px;
+    margin-top: 1.75rem;
+    padding: 1.25rem 1.4rem 1.35rem;
+    background: linear-gradient(155deg, rgba(17, 12, 28, 0.94) 0%, rgba(10, 7, 17, 0.92) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-left: 3px solid var(--magenta);
+    border-radius: 14px;
+    box-shadow: 0 22px 48px rgba(0, 0, 0, 0.52);
+    min-height: 168px;
 }
 
 .trophy-step-counter {
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.22em;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.21em;
     text-transform: uppercase;
     color: var(--amber-glow);
-    margin-bottom: 0.55rem;
+    margin-bottom: 0.5rem;
 }
 
 .trophy-active-title {
     font-family: var(--font-serif);
-    font-size: clamp(1.5rem, 2.1vw, 1.95rem);
-    color: var(--pearl);
+    font-size: clamp(1.38rem, 1.85vw, 1.76rem);
+    color: #ffffff;
     margin-bottom: 0.45rem;
     line-height: 1.22;
 }
 
 .trophy-active-meta {
-    font-size: 0.91rem;
-    color: var(--pearl-muted);
+    font-size: 0.89rem;
+    color: rgba(249, 245, 248, 0.82);
     line-height: 1.58;
 }
 
 .trophy-selector-dots {
     display: flex;
     gap: 0.65rem;
-    margin-top: 1.4rem;
+    margin-top: 1.25rem;
 }
 
 .trophy-dot {
     width: 34px;
     height: 3px;
-    background: rgba(255, 255, 255, 0.24);
+    background: rgba(255, 255, 255, 0.26);
     transition: background 0.3s ease, width 0.3s ease;
 }
 

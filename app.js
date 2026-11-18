@@ -636,12 +636,16 @@
             stencil: false,
             powerPreference: 'high-performance'
         });
+        if (THREE.sRGBEncoding !== undefined) {
+            awRenderer.outputEncoding = THREE.sRGBEncoding;
+        }
+        awRenderer.physicallyCorrectLights = true;
         awRenderer.shadowMap.enabled = true;
         awRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
         awRenderer.shadowMap.autoUpdate = false;
         awRenderer.shadowMap.needsUpdate = true;
         awRenderer.toneMapping = THREE.ACESFilmicToneMapping;
-        awRenderer.toneMappingExposure = 1.22;
+        awRenderer.toneMappingExposure = 1.01;
 
         const stageEl = document.getElementById('awardsPinnedStage');
         const setAwardsSize = () => {
@@ -654,65 +658,93 @@
         const initDim = setAwardsSize();
 
         const awScene = new THREE.Scene();
-        const awCamera = new THREE.PerspectiveCamera(33, initDim.w / initDim.h, 0.1, 100);
-        awCamera.position.set(0, 1.15, 11.7);
+        // Heroic low-angle product-commercial camera (matches trophies-reference.jpg perspective!)
+        const awCamera = new THREE.PerspectiveCamera(29, initDim.w / initDim.h, 0.1, 100);
+        awCamera.position.set(0.35, 0.18, 12.15);
 
-        // Multi-Light Studio Gallery Rig
-        const hemi = new THREE.HemisphereLight(0xfff8fc, 0x24192c, 0.85);
+        // Calibrated Luxury Product Studio Rig (Warm Key + Front Metallic Specular Fill + Dual Rim)
+        const hemi = new THREE.HemisphereLight(0xfff9f4, 0x120c1c, 0.85);
         awScene.add(hemi);
 
-        const keySpot = new THREE.SpotLight(0xfff8ee, 2.85);
-        keySpot.position.set(5.4, 10.2, 8.4);
-        keySpot.angle = Math.PI / 3.6;
-        keySpot.penumbra = 0.72;
+        // Warm-Ivory Studio Key Softbox from Upper-Left-Front
+        const keySpot = new THREE.SpotLight(0xfff5e8, 56.0, 34, Math.PI / 3.2, 0.85, 1.35);
+        keySpot.position.set(-2.2, 7.8, 9.4);
+        keySpot.target.position.set(3.0, -0.3, 0);
         keySpot.castShadow = true;
         keySpot.shadow.mapSize.width = 1024;
         keySpot.shadow.mapSize.height = 1024;
-        keySpot.shadow.bias = -0.0003;
+        keySpot.shadow.bias = -0.00025;
+        keySpot.shadow.radius = 3.2;
         awScene.add(keySpot);
+        awScene.add(keySpot.target);
 
-        const fillLight = new THREE.DirectionalLight(0xf6eeff, 0.95);
-        fillLight.position.set(-6.0, 4.5, 6.5);
+        // Controlled Off-Axis Beauty Fill (avoids flat mirror glare hotspot on angled gold monoliths!)
+        const frontBeautyLight = new THREE.DirectionalLight(0xfff8ee, 0.62);
+        frontBeautyLight.position.set(-2.5, 4.8, 10.2);
+        awScene.add(frontBeautyLight);
+
+        // Crisp Cool-Platinum Side Fill from Right for Faceted Crystal Separation
+        const fillLight = new THREE.DirectionalLight(0xeef3ff, 0.88);
+        fillLight.position.set(7.8, 4.4, 6.2);
         awScene.add(fillLight);
 
-        const rimMagenta = new THREE.PointLight(0xe60099, 1.55, 22);
-        rimMagenta.position.set(-5.4, 3.8, -3.8);
+        // Subtle Candour Magenta & Warm Amber Back-Rim Kickers
+        const rimMagenta = new THREE.PointLight(0xe60099, 14.0, 18, 1.6);
+        rimMagenta.position.set(-1.8, 2.6, -4.4);
         awScene.add(rimMagenta);
 
-        const rimWarm = new THREE.PointLight(0xff9436, 1.65, 22);
-        rimWarm.position.set(7.4, 3.2, 4.2);
+        const rimWarm = new THREE.PointLight(0xff8c2b, 18.0, 20, 1.6);
+        rimWarm.position.set(7.2, 2.8, -3.2);
         awScene.add(rimWarm);
 
-        // High-definition Studio Softbox Reflection Environment Map
+        // High-Contrast Product Photography Softbox HDRI (with +Z u=0.75 Camera-Front Softbox!)
         function makeStudioEnvTexture() {
             const c = document.createElement('canvas');
-            c.width = 512;
-            c.height = 256;
+            c.width = 1024;
+            c.height = 512;
             const ctx = c.getContext('2d');
 
-            const g = ctx.createLinearGradient(0, 0, 0, 256);
-            g.addColorStop(0.0, '#1e152a');
-            g.addColorStop(0.22, '#fffaf4');
-            g.addColorStop(0.42, '#ded6e6');
-            g.addColorStop(0.54, '#1b1424');
-            g.addColorStop(0.76, '#ffbd78');
-            g.addColorStop(1.0, '#0c0912');
+            const g = ctx.createLinearGradient(0, 0, 0, 512);
+            g.addColorStop(0.0, '#120d1d');
+            g.addColorStop(0.22, '#2a2238');
+            g.addColorStop(0.48, '#1e1829');
+            g.addColorStop(0.56, '#0b0812');
+            g.addColorStop(0.84, '#1f161c');
+            g.addColorStop(1.0, '#07050b');
             ctx.fillStyle = g;
-            ctx.fillRect(0, 0, 512, 256);
+            ctx.fillRect(0, 0, 1024, 512);
 
-            // Studio overhead & side vertical softbox strips for crisp metallic reflections
-            const strips = [
-                { x: 54, y: 18, w: 130, h: 44, a: 0.96 },
-                { x: 240, y: 24, w: 165, h: 36, a: 0.92 },
-                { x: 430, y: 30, w: 62, h: 120, a: 0.85 },
-                { x: 110, y: 140, w: 95, h: 30, a: 0.55 }
-            ];
-            strips.forEach((s) => {
-                ctx.fillStyle = `rgba(255, 252, 246, ${s.a})`;
-                ctx.fillRect(s.x, s.y, s.w, s.h);
-            });
+            const drawSoftbox = (cx, cy, rw, rh, innerCol, outerCol) => {
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.scale(rw, rh);
+                const rg = ctx.createRadialGradient(0, 0, 0.10, 0, 0, 1.0);
+                rg.addColorStop(0.0, innerCol);
+                rg.addColorStop(0.58, outerCol);
+                rg.addColorStop(1.0, 'rgba(0,0,0,0)');
+                ctx.fillStyle = rg;
+                ctx.fillRect(-1, -1, 2, 2);
+                ctx.restore();
+            };
+
+            // Crucial: In Three.js EquirectangularReflectionMapping, +Z (toward camera) is u = 0.75 (x = 768)!
+            // Placing a large warm studio diffusion scrim around x = 768 makes front-facing gold, copper & silver glow!
+            drawSoftbox(768, 210, 220, 135, 'rgba(255, 251, 242, 1.0)', 'rgba(255, 234, 198, 0.74)');
+            drawSoftbox(640, 130, 150, 75, 'rgba(255, 253, 248, 0.98)', 'rgba(245, 232, 215, 0.58)');
+            drawSoftbox(895, 165, 130, 95, 'rgba(255, 246, 230, 0.96)', 'rgba(255, 206, 150, 0.52)');
+            drawSoftbox(256, 120, 160, 68, 'rgba(255, 250, 240, 0.92)', 'rgba(230, 224, 245, 0.45)');
+            drawSoftbox(512, 82, 210, 48, 'rgba(255, 252, 248, 0.95)', 'rgba(230, 228, 242, 0.48)');
+
+            // Crisp studio horizon reflection band for realistic metallic sheen
+            const glint = ctx.createLinearGradient(0, 168, 0, 244);
+            glint.addColorStop(0, 'rgba(255, 252, 244, 0)');
+            glint.addColorStop(0.45, 'rgba(255, 248, 234, 0.62)');
+            glint.addColorStop(1, 'rgba(255, 248, 234, 0)');
+            ctx.fillStyle = glint;
+            ctx.fillRect(0, 168, 1024, 76);
 
             const rawEnvTex = new THREE.CanvasTexture(c);
+            if (THREE.sRGBEncoding !== undefined) rawEnvTex.encoding = THREE.sRGBEncoding;
             rawEnvTex.mapping = THREE.EquirectangularReflectionMapping;
             if (THREE.PMREMGenerator) {
                 const pmremGen = new THREE.PMREMGenerator(awRenderer);
@@ -726,30 +758,63 @@
         }
         awScene.environment = makeStudioEnvTexture();
 
-        function makeEngravedTexture(drawFn, w = 1024, h = 1536) {
+        function makeEngravedTexture(drawFn, w = 1024, h = 1536, isColor = true) {
             const c = document.createElement('canvas');
             c.width = w;
             c.height = h;
             const ctx = c.getContext('2d');
             drawFn(ctx, w, h);
             const tex = new THREE.CanvasTexture(c);
+            if (isColor && THREE.sRGBEncoding !== undefined) {
+                tex.encoding = THREE.sRGBEncoding;
+            }
             tex.anisotropy = Math.min(8, awRenderer.capabilities.getMaxAnisotropy());
             return tex;
         }
 
-        function addBrushedGrain(ctx, w, h, vertical = false, alpha = 0.035) {
+        // Procedural Micro-Brushed Anisotropic Metal & Porous Travertine Bump Maps
+        function makeBrushedBumpMap(vertical = false) {
+            return makeEngravedTexture((ctx, w, h) => {
+                ctx.fillStyle = '#808080';
+                ctx.fillRect(0, 0, w, h);
+                const lines = 420;
+                for (let i = 0; i < lines; i++) {
+                    const lum = 96 + ((i * 37) % 64);
+                    ctx.strokeStyle = `rgb(${lum},${lum},${lum})`;
+                    ctx.lineWidth = 1 + (i % 2) * 0.6;
+                    ctx.beginPath();
+                    if (vertical) {
+                        const x = (i / lines) * w;
+                        ctx.moveTo(x, 0);
+                        ctx.lineTo(x, h);
+                    } else {
+                        const y = (i / lines) * h;
+                        ctx.moveTo(0, y);
+                        ctx.lineTo(w, y);
+                    }
+                    ctx.stroke();
+                }
+            }, 512, 512, false);
+        }
+        const brushedHBump = makeBrushedBumpMap(false);
+        const brushedVBump = makeBrushedBumpMap(true);
+
+        function addBrushedGrain(ctx, w, h, vertical = false, alpha = 0.045) {
             ctx.save();
-            ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-            ctx.lineWidth = 1;
-            const count = vertical ? 220 : 180;
+            const count = vertical ? 320 : 260;
             for (let i = 0; i < count; i++) {
+                const isLight = i % 2 === 0;
+                ctx.strokeStyle = isLight
+                    ? `rgba(255, 255, 255, ${alpha})`
+                    : `rgba(20, 14, 8, ${alpha * 0.55})`;
+                ctx.lineWidth = 1;
                 ctx.beginPath();
                 if (vertical) {
-                    const x = (i / count) * w + (Math.sin(i * 13.7) * 2);
+                    const x = (i / count) * w + Math.sin(i * 13.7) * 1.5;
                     ctx.moveTo(x, 0);
                     ctx.lineTo(x, h);
                 } else {
-                    const y = (i / count) * h + (Math.cos(i * 11.3) * 2);
+                    const y = (i / count) * h + Math.cos(i * 11.3) * 1.5;
                     ctx.moveTo(0, y);
                     ctx.lineTo(w, y);
                 }
@@ -758,15 +823,26 @@
             ctx.restore();
         }
 
-        // Soft Contact Shadow Decal Texture for grounding each trophy on the travertine pedestal
+        // Deep Multi-Layered Grounding Contact Shadow Decal (tight dark core + soft diffused penumbra)
         const contactShadowTex = makeEngravedTexture((ctx, w, h) => {
-            const g = ctx.createRadialGradient(w / 2, h / 2, 8, w / 2, h / 2, w * 0.48);
-            g.addColorStop(0.0, 'rgba(18, 10, 22, 0.58)');
-            g.addColorStop(0.48, 'rgba(18, 10, 22, 0.24)');
-            g.addColorStop(1.0, 'rgba(18, 10, 22, 0.0)');
-            ctx.fillStyle = g;
+            ctx.clearRect(0, 0, w, h);
+            // Soft outer penumbra
+            const outer = ctx.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, w * 0.49);
+            outer.addColorStop(0.0, 'rgba(18, 10, 14, 0.78)');
+            outer.addColorStop(0.42, 'rgba(24, 14, 18, 0.42)');
+            outer.addColorStop(0.76, 'rgba(24, 14, 18, 0.12)');
+            outer.addColorStop(1.0, 'rgba(24, 14, 18, 0.0)');
+            ctx.fillStyle = outer;
             ctx.fillRect(0, 0, w, h);
-        }, 256, 256);
+
+            // Crisp dark rectangular footprint ambient occlusion right beneath the trophy base
+            const padX = w * 0.16;
+            const padY = h * 0.24;
+            ctx.filter = 'blur(8px)';
+            ctx.fillStyle = 'rgba(8, 4, 8, 0.72)';
+            ctx.fillRect(padX, padY, w - padX * 2, h - padY * 2);
+            ctx.filter = 'none';
+        }, 256, 256, false);
 
         function createContactShadow(width, depth) {
             const m = new THREE.Mesh(
@@ -778,178 +854,280 @@
                 })
             );
             m.rotation.x = -Math.PI / 2;
-            m.position.y = -1.408;
+            m.position.y = -1.406;
             return m;
         }
 
-        // Warm Champagne-Travertine Drum Pedestal (matching Page 8 of Credentials Deck)
-        const getGalleryOffsetX = () => (window.innerWidth < 1080 ? 0.0 : 2.15);
+        // Right-Aligned Exhibition Offset — generous breathing room clear of the left readout card!
+        const getGalleryOffsetX = () => (window.innerWidth < 1140 ? 0.0 : 3.04);
         let galleryOffsetX = getGalleryOffsetX();
 
-        const stoneTex = makeEngravedTexture((ctx, w, h) => {
-            const g = ctx.createLinearGradient(0, 0, w, h);
-            g.addColorStop(0, '#e3d0c7');
-            g.addColorStop(0.5, '#d2bcb2');
-            g.addColorStop(1, '#bca297');
+        // Seamless Carved Matte Travertine Limestone Plinth (zero horizontal rings & zero UV wrap seam!)
+        const stoneBumpTex = makeEngravedTexture((ctx, w, h) => {
+            ctx.fillStyle = '#828282';
+            ctx.fillRect(0, 0, w, h);
+            for (let p = 0; p < 2200; p++) {
+                const px = (Math.sin(p * 78.233) * 0.5 + 0.5) * w;
+                const py = (Math.cos(p * 45.164) * 0.5 + 0.5) * h;
+                const r = 0.7 + (p % 4) * 0.65;
+                ctx.fillStyle = p % 3 === 0 ? '#585858' : '#9c9c9c';
+                ctx.beginPath();
+                ctx.arc(px, py, r, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }, 512, 512, false);
+
+        const stoneSideTex = makeEngravedTexture((ctx, w, h) => {
+            // Periodic seamless wrap gradient (0.0 and 1.0 match identically so cylinder has ZERO seam!)
+            const g = ctx.createLinearGradient(0, 0, w, 0);
+            g.addColorStop(0.0, '#c8b2a4');
+            g.addColorStop(0.25, '#dfd0c5');
+            g.addColorStop(0.50, '#b59c8e');
+            g.addColorStop(0.75, '#e2d4ca');
+            g.addColorStop(1.0, '#c8b2a4');
             ctx.fillStyle = g;
             ctx.fillRect(0, 0, w, h);
-            // Travertine mineral pores & warm stone strata
-            ctx.strokeStyle = 'rgba(112, 82, 76, 0.18)';
-            ctx.lineWidth = 2;
-            for (let i = 0; i < 28; i++) {
-                ctx.beginPath();
-                const y = i * (h / 28) + 10;
-                ctx.moveTo(0, y);
-                ctx.bezierCurveTo(w * 0.32, y - 9, w * 0.68, y + 14, w, y + 4);
-                ctx.stroke();
+
+            const vg = ctx.createLinearGradient(0, 0, 0, h);
+            vg.addColorStop(0.0, 'rgba(255, 250, 246, 0.24)');
+            vg.addColorStop(0.22, 'rgba(0, 0, 0, 0.0)');
+            vg.addColorStop(1.0, 'rgba(18, 10, 14, 0.42)');
+            ctx.fillStyle = vg;
+            ctx.fillRect(0, 0, w, h);
+
+            // Fine organic sandstone mineral speckles (matching matte stone drum in trophies-reference.jpg!)
+            for (let p = 0; p < 2400; p++) {
+                const px = (Math.sin(p * 91.713) * 0.5 + 0.5) * w;
+                const py = (Math.cos(p * 53.317) * 0.5 + 0.5) * h;
+                ctx.fillStyle = p % 2 === 0 ? 'rgba(84, 60, 50, 0.14)' : 'rgba(255, 250, 246, 0.14)';
+                ctx.fillRect(px, py, 1.8 + (p % 3), 1.4);
+            }
+        }, 1024, 256);
+
+        const stoneTopTex = makeEngravedTexture((ctx, w, h) => {
+            const rg = ctx.createRadialGradient(w * 0.48, h * 0.48, w * 0.05, w / 2, h / 2, w * 0.5);
+            rg.addColorStop(0.0, '#ebe0d7');
+            rg.addColorStop(0.68, '#dccbc0');
+            rg.addColorStop(0.95, '#c7b2a5');
+            rg.addColorStop(1.0, '#b8a092');
+            ctx.fillStyle = rg;
+            ctx.fillRect(0, 0, w, h);
+
+            for (let p = 0; p < 1600; p++) {
+                const px = (Math.sin(p * 63.19) * 0.5 + 0.5) * w;
+                const py = (Math.cos(p * 39.81) * 0.5 + 0.5) * h;
+                ctx.fillStyle = p % 2 === 0 ? 'rgba(92, 68, 58, 0.08)' : 'rgba(255, 252, 248, 0.12)';
+                ctx.fillRect(px, py, 1.8, 1.8);
             }
         }, 512, 512);
 
+        const stoneSideMat = new THREE.MeshStandardMaterial({
+            map: stoneSideTex,
+            bumpMap: stoneBumpTex,
+            bumpScale: 0.008,
+            roughness: 0.82,
+            metalness: 0.02,
+            envMapIntensity: 0.45
+        });
+        const stoneTopMat = new THREE.MeshStandardMaterial({
+            map: stoneTopTex,
+            bumpMap: stoneBumpTex,
+            bumpScale: 0.005,
+            roughness: 0.72,
+            metalness: 0.03,
+            envMapIntensity: 0.52
+        });
+
         const pedestal = new THREE.Mesh(
-            new THREE.CylinderGeometry(4.52, 4.64, 0.78, 84),
-            new THREE.MeshStandardMaterial({
-                map: stoneTex,
-                roughness: 0.68,
-                metalness: 0.03
-            })
+            new THREE.CylinderGeometry(3.62, 3.70, 0.74, 96),
+            [stoneSideMat, stoneTopMat, stoneSideMat]
         );
-        pedestal.position.set(galleryOffsetX, -1.80, 0);
+        pedestal.position.set(galleryOffsetX, -1.78, 0);
         pedestal.receiveShadow = true;
         awScene.add(pedestal);
 
         const pedRing = new THREE.Mesh(
-            new THREE.TorusGeometry(4.52, 0.015, 16, 108),
-            new THREE.MeshStandardMaterial({ color: 0xffa466, metalness: 0.82, roughness: 0.22 })
+            new THREE.TorusGeometry(3.62, 0.011, 16, 112),
+            new THREE.MeshStandardMaterial({
+                color: 0xdba06b,
+                metalness: 0.85,
+                roughness: 0.25,
+                envMapIntensity: 1.1
+            })
         );
         pedRing.rotation.x = Math.PI / 2;
-        pedRing.position.set(galleryOffsetX, -1.41, 0);
+        pedRing.position.set(galleryOffsetX, -1.412, 0);
         awScene.add(pedRing);
 
-        // ---- TROPHY 1: 15th e4m IPRCCA (Stepped Satin-Silver Crown + Raised Plaque + 3D Copper "15") ----
+        // ---- TROPHY 1: 15th e4m IPRCCA (Anodized Satin-Silver Monolith + Die-Cut Crowd Crest + Mirror-Copper "15") ----
         function buildIPRCCA3DTrophy() {
             const group = new THREE.Group();
 
             const silverBodyMat = new THREE.MeshStandardMaterial({
-                color: 0xe6e7ef,
-                metalness: 0.80,
-                roughness: 0.23
+                color: 0xd8dce6,
+                bumpMap: brushedHBump,
+                bumpScale: 0.0035,
+                metalness: 0.86,
+                roughness: 0.24,
+                envMapIntensity: 1.35
             });
 
-            // 1A. Full-height stepped architectural silver backing monolith behind "1" and "5" (exact Page 8 silhouette!)
+            // 1A. Stepped Architectural Brushed-Silver Backing Monolith behind "1" and "5"
             const backShape = new THREE.Shape();
-            backShape.moveTo(-0.71, -1.36);
-            backShape.lineTo(0.71, -1.36);
-            backShape.lineTo(0.71, 0.38);
+            backShape.moveTo(-0.70, -1.36);
+            backShape.lineTo(0.70, -1.36);
+            backShape.lineTo(0.70, 0.38);
             backShape.lineTo(0.63, 0.38);
-            backShape.lineTo(0.63, 1.32);
-            backShape.lineTo(0.50, 1.32);
-            backShape.lineTo(0.50, 1.44);
-            backShape.lineTo(0.09, 1.44);
-            // Central stepped notch between "1" and "5" visible in Page 8
-            backShape.lineTo(0.09, 0.22);
-            backShape.lineTo(-0.09, 0.22);
-            backShape.lineTo(-0.09, 1.44);
-            backShape.lineTo(-0.50, 1.44);
-            backShape.lineTo(-0.50, 1.32);
-            backShape.lineTo(-0.63, 1.32);
+            backShape.lineTo(0.63, 1.33);
+            backShape.lineTo(0.50, 1.33);
+            backShape.lineTo(0.50, 1.45);
+            backShape.lineTo(0.085, 1.45);
+            // Deep central vertical channel notch between "1" and "5" (visible in trophies-reference.jpg)
+            backShape.lineTo(0.085, 0.18);
+            backShape.lineTo(-0.085, 0.18);
+            backShape.lineTo(-0.085, 1.45);
+            backShape.lineTo(-0.50, 1.45);
+            backShape.lineTo(-0.50, 1.33);
+            backShape.lineTo(-0.63, 1.33);
             backShape.lineTo(-0.63, 0.38);
-            backShape.lineTo(-0.71, 0.38);
+            backShape.lineTo(-0.70, 0.38);
             backShape.closePath();
 
             const backPlate = new THREE.Mesh(
                 new THREE.ExtrudeGeometry(backShape, {
-                    depth: 0.24,
+                    depth: 0.22,
                     bevelEnabled: true,
-                    bevelSegments: 3,
+                    bevelSegments: 4,
                     steps: 1,
-                    bevelSize: 0.014,
-                    bevelThickness: 0.014
+                    bevelSize: 0.016,
+                    bevelThickness: 0.016
                 }),
                 silverBodyMat
             );
-            backPlate.position.z = -0.22;
+            backPlate.position.z = -0.20;
             backPlate.castShadow = true;
             backPlate.receiveShadow = true;
             group.add(backPlate);
 
-            // 1B. Raised Lower Front Brushed-Silver Plaque (with crowd silhouette frieze & exact IPRCCA typography)
+            // Soft Ambient-Occlusion Shadow Plate behind the 3D "15" numerals on the silver backing
+            const numShadowTex = makeEngravedTexture((ctx, w, h) => {
+                ctx.clearRect(0, 0, w, h);
+                ctx.filter = 'blur(12px)';
+                ctx.fillStyle = 'rgba(12, 10, 18, 0.55)';
+                // Left "1" shadow + Right "5" shadow
+                ctx.fillRect(62, 34, 72, 186);
+                ctx.fillRect(150, 34, 96, 186);
+                ctx.filter = 'none';
+            }, 288, 256, false);
+            const numShadowPlane = new THREE.Mesh(
+                new THREE.PlaneGeometry(1.28, 1.04),
+                new THREE.MeshBasicMaterial({ map: numShadowTex, transparent: true, depthWrite: false })
+            );
+            numShadowPlane.position.set(0.02, 0.84, 0.038);
+            group.add(numShadowPlane);
+
+            // 1B. Raised Lower Front Brushed-Aluminium Plaque (with physically shaded laser-cut crowd silhouette & deep engraved ink)
             const frontTex = makeEngravedTexture((ctx, w, h) => {
-                const bg = ctx.createLinearGradient(0, 0, w, h);
-                bg.addColorStop(0.0, '#f8f8fb');
-                bg.addColorStop(0.52, '#e8e9f0');
-                bg.addColorStop(1.0, '#cfd2dc');
+                // Realistic diagonal brushed anodized-aluminium sheen + subtle bottom AO
+                const bg = ctx.createLinearGradient(0, 0, w * 0.85, h);
+                bg.addColorStop(0.0, '#f4f5f9');
+                bg.addColorStop(0.28, '#e5e7ef');
+                bg.addColorStop(0.62, '#d2d5e0');
+                bg.addColorStop(0.88, '#c2c6d4');
+                bg.addColorStop(1.0, '#b2b6c5');
                 ctx.fillStyle = bg;
                 ctx.fillRect(0, 0, w, h);
-                addBrushedGrain(ctx, w, h, false, 0.05);
+                addBrushedGrain(ctx, w, h, false, 0.048);
 
-                // Engraved crowd-of-people contour frieze across upper plaque crest (matching Page 8)
-                ctx.strokeStyle = 'rgba(72, 76, 90, 0.55)';
-                ctx.lineWidth = 3.2;
-                ctx.beginPath();
-                const heads = 13;
-                for (let i = 0; i < heads; i++) {
-                    const cx = 78 + i * ((w - 156) / (heads - 1));
-                    const cy = 96 + (i % 2 === 0 ? -10 : 8);
-                    // Shoulders
-                    ctx.moveTo(cx - 32, 168);
-                    ctx.quadraticCurveTo(cx - 26, cy + 26, cx - 10, cy + 22);
-                    ctx.moveTo(cx + 10, cy + 22);
-                    ctx.quadraticCurveTo(cx + 26, cy + 26, cx + 32, 168);
-                }
-                ctx.stroke();
-                for (let i = 0; i < heads; i++) {
-                    const cx = 78 + i * ((w - 156) / (heads - 1));
-                    const cy = 96 + (i % 2 === 0 ? -10 : 8);
-                    ctx.beginPath();
-                    ctx.arc(cx, cy, 14, 0, Math.PI * 2);
-                    ctx.stroke();
-                }
+                // Crisp left & top specular chamfer edge catchlights
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+                ctx.fillRect(0, 0, w, 6);
+                ctx.fillRect(0, 0, 8, h);
+                ctx.fillStyle = 'rgba(30, 32, 44, 0.22)';
+                ctx.fillRect(w - 7, 0, 7, h);
+                ctx.fillRect(0, h - 10, w, 10);
 
-                // "15 th" + red "e4m"
+                // Recessed dark top channel above the die-cut crowd silhouette crest (exact trophies-reference.jpg detail!)
+                const drawCrowdCrest = (offsetY, strokeCol, lineW) => {
+                    ctx.strokeStyle = strokeCol;
+                    ctx.lineWidth = lineW;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    const heads = 13;
+                    for (let i = 0; i < heads; i++) {
+                        const cx = 66 + i * ((w - 132) / (heads - 1));
+                        const cy = 94 + (i % 3 === 0 ? -12 : (i % 2 === 0 ? 6 : -3)) + offsetY;
+                        ctx.beginPath();
+                        ctx.arc(cx, cy, 15.5, Math.PI * 1.12, Math.PI * -0.12, false);
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(cx - 34, 168 + offsetY);
+                        ctx.quadraticCurveTo(cx - 28, cy + 22, cx - 11, cy + 19);
+                        ctx.moveTo(cx + 11, cy + 19);
+                        ctx.quadraticCurveTo(cx + 28, cy + 22, cx + 34, 168 + offsetY);
+                        ctx.stroke();
+                    }
+                };
+                // Subtle upper shadow tint so top of plaque reads as laser-cut silhouette relief
+                const topShade = ctx.createLinearGradient(0, 0, 0, 155);
+                topShade.addColorStop(0, 'rgba(38, 40, 54, 0.22)');
+                topShade.addColorStop(0.65, 'rgba(38, 40, 54, 0.06)');
+                topShade.addColorStop(1, 'rgba(38, 40, 54, 0)');
+                ctx.fillStyle = topShade;
+                ctx.fillRect(0, 0, w, 155);
+
+                // Etched dark shadow groove + bright lower metallic catchlight on crowd frieze
+                drawCrowdCrest(3, 'rgba(255, 255, 255, 0.68)', 4.2);
+                drawCrowdCrest(0, 'rgba(42, 45, 58, 0.78)', 4.0);
+
+                // "15 th" + crimson "e4m"
                 ctx.textAlign = 'center';
-                ctx.fillStyle = '#333642';
-                ctx.font = '600 54px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText('15 th', w / 2 - 74, 272);
-                ctx.fillStyle = '#d62027';
-                ctx.font = '800 58px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText('e4m', w / 2 + 86, 272);
+                ctx.fillStyle = '#20232e';
+                ctx.font = '600 56px "Plus Jakarta Sans", sans-serif';
+                ctx.fillText('15 th', w / 2 - 76, 276);
+                ctx.fillStyle = '#d41920';
+                ctx.font = '800 60px "Plus Jakarta Sans", sans-serif';
+                ctx.fillText('e4m', w / 2 + 88, 276);
 
-                // Twin blue vertical bars + bold blue "PRCCA"
-                ctx.fillStyle = '#0068bd';
-                ctx.fillRect(156, 306, 13, 108);
-                ctx.fillRect(178, 306, 13, 108);
+                // Deep Cobalt-Blue Twin Vertical Bars + Bold "PRCCA"
+                ctx.fillStyle = '#005eb8';
+                ctx.fillRect(152, 308, 14, 110);
+                ctx.fillRect(176, 308, 14, 110);
                 ctx.textAlign = 'left';
-                ctx.font = '900 132px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText('PRCCA', 202, 410);
+                ctx.font = '900 134px "Plus Jakarta Sans", sans-serif';
+                ctx.fillText('PRCCA', 202, 414);
 
-                // Blue underline + subtitle
-                ctx.fillRect(156, 428, w - 312, 7);
+                // Crisp Blue Rules + Subtitle
+                ctx.fillRect(152, 432, w - 304, 7);
                 ctx.textAlign = 'center';
-                ctx.fillStyle = '#191b24';
-                ctx.font = '800 28px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText('INDIA PR & CORPORATE', w / 2, 468);
-                ctx.fillText('COMMUNICATIONS AWARDS 2024', w / 2, 502);
-                ctx.fillStyle = '#0068bd';
-                ctx.fillRect(156, 516, w - 312, 4);
+                ctx.fillStyle = '#14161f';
+                ctx.font = '800 29px "Plus Jakarta Sans", sans-serif';
+                ctx.fillText('INDIA PR & CORPORATE', w / 2, 472);
+                ctx.fillText('COMMUNICATIONS AWARDS 2024', w / 2, 506);
+                ctx.fillStyle = '#005eb8';
+                ctx.fillRect(152, 520, w - 304, 4.5);
 
-                // Campaign & Winner Engraving
-                ctx.fillStyle = '#12131a';
-                ctx.font = '700 38px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText('Redefining the Future of Data & AI', w / 2, 628);
-
-                ctx.fillStyle = '#1f2029';
+                // High-Contrast Laser-Engraved Campaign & Winner Text
+                ctx.fillStyle = '#0e1017';
                 ctx.font = '700 39px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText('Databricks', w / 2, 742);
-                ctx.fillText('Candour Communications', w / 2, 796);
-                ctx.fillStyle = '#383a47';
-                ctx.font = '700 35px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText('Technology', w / 2, 852);
+                ctx.fillText('Redefining the Future of Data & AI', w / 2, 636);
+
+                ctx.fillStyle = '#141620';
+                ctx.font = '700 41px "Plus Jakarta Sans", sans-serif';
+                ctx.fillText('Databricks', w / 2, 748);
+                ctx.fillText('Candour Communications', w / 2, 804);
+                ctx.fillStyle = '#222533';
+                ctx.font = '700 37px "Plus Jakarta Sans", sans-serif';
+                ctx.fillText('Technology', w / 2, 860);
             }, 1024, 1024);
 
             const frontPlaqueMat = new THREE.MeshStandardMaterial({
                 map: frontTex,
-                metalness: 0.48,
-                roughness: 0.25
+                bumpMap: brushedHBump,
+                bumpScale: 0.0018,
+                metalness: 0.38,
+                roughness: 0.30,
+                envMapIntensity: 1.15
             });
 
             const frontPlaque = new THREE.Mesh(
@@ -961,48 +1139,64 @@
             frontPlaque.receiveShadow = true;
             group.add(frontPlaque);
 
-            // Slim bevelled silver footplate
-            const silverFoot = new THREE.Mesh(new THREE.BoxGeometry(1.50, 0.06, 0.52), silverBodyMat);
-            silverFoot.position.set(0, -1.37, -0.02);
+            // Slim Dark Shadow-Line Base Footplate
+            const silverFoot = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.05, 0.50), silverBodyMat);
+            silverFoot.position.set(0, -1.375, -0.01);
             silverFoot.castShadow = true;
             group.add(silverFoot);
 
-            // 1C. Sculpted Bevelled Mirror-Copper "1" & "5" Numerals sitting on top of the front plaque
-            const copperMat = new THREE.MeshStandardMaterial({
-                color: 0xd9691e,
-                metalness: 0.92,
-                roughness: 0.14
+            // 1C. Glowing Burnished Copper-Bronze "1" & "5" Numerals (matches bright warm copper in trophies-reference.jpg!)
+            const copperFaceTex = makeEngravedTexture((ctx, w, h) => {
+                const g = ctx.createLinearGradient(0, h, w * 0.7, 0);
+                g.addColorStop(0.0, '#9c3e08');
+                g.addColorStop(0.35, '#da6a19');
+                g.addColorStop(0.68, '#f59338');
+                g.addColorStop(0.88, '#ffc16e');
+                g.addColorStop(1.0, '#e37722');
+                ctx.fillStyle = g;
+                ctx.fillRect(0, 0, w, h);
+                addBrushedGrain(ctx, w, h, false, 0.04);
+            }, 256, 256);
+
+            const copperMat = new THREE.MeshPhysicalMaterial({
+                color: 0xf48832,
+                map: copperFaceTex,
+                metalness: 0.78,
+                roughness: 0.19,
+                clearcoat: 0.45,
+                clearcoatRoughness: 0.14,
+                envMapIntensity: 1.65
             });
             const numExtrude = {
-                depth: 0.20,
+                depth: 0.21,
                 bevelEnabled: true,
-                bevelSegments: 5,
+                bevelSegments: 8,
                 steps: 1,
-                bevelSize: 0.020,
-                bevelThickness: 0.020
+                bevelSize: 0.024,
+                bevelThickness: 0.024
             };
 
             const oneShape = new THREE.Shape();
             oneShape.moveTo(-0.41, 0);
             oneShape.lineTo(-0.19, 0);
-            oneShape.lineTo(-0.19, 0.92);
-            oneShape.lineTo(-0.56, 0.92);
-            oneShape.lineTo(-0.56, 0.73);
-            oneShape.lineTo(-0.41, 0.73);
+            oneShape.lineTo(-0.19, 0.94);
+            oneShape.lineTo(-0.56, 0.94);
+            oneShape.lineTo(-0.56, 0.75);
+            oneShape.lineTo(-0.41, 0.75);
             oneShape.closePath();
 
             const oneMesh = new THREE.Mesh(new THREE.ExtrudeGeometry(oneShape, numExtrude), copperMat);
-            oneMesh.position.set(0.0, 0.37, -0.02);
+            oneMesh.position.set(0.0, 0.37, 0.0);
             oneMesh.castShadow = true;
             group.add(oneMesh);
 
             const fiveShape = new THREE.Shape();
-            fiveShape.moveTo(0.14, 0.92);
-            fiveShape.lineTo(0.60, 0.92);
-            fiveShape.lineTo(0.60, 0.73);
-            fiveShape.lineTo(0.31, 0.73);
-            fiveShape.lineTo(0.30, 0.56);
-            fiveShape.bezierCurveTo(0.52, 0.58, 0.63, 0.45, 0.63, 0.27);
+            fiveShape.moveTo(0.14, 0.94);
+            fiveShape.lineTo(0.60, 0.94);
+            fiveShape.lineTo(0.60, 0.75);
+            fiveShape.lineTo(0.31, 0.75);
+            fiveShape.lineTo(0.30, 0.57);
+            fiveShape.bezierCurveTo(0.52, 0.59, 0.63, 0.46, 0.63, 0.27);
             fiveShape.bezierCurveTo(0.63, 0.07, 0.49, -0.02, 0.33, -0.02);
             fiveShape.bezierCurveTo(0.18, -0.02, 0.10, 0.05, 0.08, 0.17);
             fiveShape.lineTo(0.26, 0.21);
@@ -1013,26 +1207,25 @@
             fiveShape.closePath();
 
             const fiveMesh = new THREE.Mesh(new THREE.ExtrudeGeometry(fiveShape, numExtrude), copperMat);
-            fiveMesh.position.set(-0.02, 0.37, -0.02);
+            fiveMesh.position.set(-0.02, 0.37, 0.0);
             fiveMesh.castShadow = true;
             group.add(fiveMesh);
 
-            group.add(createContactShadow(1.88, 0.96));
+            group.add(createContactShadow(1.92, 1.02));
             return group;
         }
 
-        // ---- TROPHIES 2 & 3: Tapered 48th BW Marketing World Gold EXCEL Monoliths ----
+        // ---- TROPHIES 2 & 3: Tapered 48th BW Marketing World 24k Satin-Gold EXCEL Obelisks ----
         function buildTaperedTrapezoidGeometry(bottomW, topW, height, depth) {
-            // Builds a bevelled-look tapered prism with clean planar UVs on the front face
-            const geo = new THREE.BoxGeometry(bottomW, height, depth, 2, 4, 2);
+            const geo = new THREE.BoxGeometry(bottomW, height, depth, 4, 8, 2);
             const pos = geo.attributes.position;
             const halfH = height / 2;
             const ratio = topW / bottomW;
             for (let i = 0; i < pos.count; i++) {
                 const y = pos.getY(i);
-                const t = (y + halfH) / height; // 0 at bottom, 1 at top
+                const t = (y + halfH) / height;
                 const scaleX = 1.0 + (ratio - 1.0) * t;
-                const scaleZ = 1.0 - 0.12 * t;
+                const scaleZ = 1.0 - 0.14 * t;
                 pos.setX(i, pos.getX(i) * scaleX);
                 pos.setZ(i, pos.getZ(i) * scaleZ);
             }
@@ -1044,94 +1237,117 @@
             const group = new THREE.Group();
 
             const goldFaceTex = makeEngravedTexture((ctx, w, h) => {
-                // Rich vertical brushed 24k gold sheen matching Page 8
-                const g = ctx.createLinearGradient(0, 0, w, h);
-                g.addColorStop(0.0, '#fff099');
-                g.addColorStop(0.28, '#f7cc4f');
-                g.addColorStop(0.65, '#e7ae28');
-                g.addColorStop(1.0, '#ffd968');
+                // Authentic 24k Satin-Gold Diagonal Specular Sheen (matches warm rich gold in trophies-reference.jpg!)
+                const g = ctx.createLinearGradient(0, 0, w * 0.9, h);
+                g.addColorStop(0.0, '#ffe985');
+                g.addColorStop(0.22, '#f8c94b');
+                g.addColorStop(0.54, '#e3a524');
+                g.addColorStop(0.82, '#f3be3d');
+                g.addColorStop(1.0, '#d6951a');
                 ctx.fillStyle = g;
                 ctx.fillRect(0, 0, w, h);
-                addBrushedGrain(ctx, w, h, true, 0.055);
+                addBrushedGrain(ctx, w, h, true, 0.052);
 
-                // Subtle bright left bevel highlight line (seen on Page 8 gold monoliths)
-                const edgeGlow = ctx.createLinearGradient(0, 0, 56, 0);
-                edgeGlow.addColorStop(0, 'rgba(255, 253, 228, 0.85)');
-                edgeGlow.addColorStop(1, 'rgba(255, 253, 228, 0.0)');
-                ctx.fillStyle = edgeGlow;
-                ctx.fillRect(0, 0, 56, h);
+                // Crisp Polished Bevel Rim Highlights along Left, Top & Right Chamfers
+                const leftBevel = ctx.createLinearGradient(0, 0, 48, 0);
+                leftBevel.addColorStop(0, 'rgba(255, 252, 220, 0.92)');
+                leftBevel.addColorStop(0.45, 'rgba(255, 244, 180, 0.35)');
+                leftBevel.addColorStop(1, 'rgba(255, 244, 180, 0.0)');
+                ctx.fillStyle = leftBevel;
+                ctx.fillRect(0, 0, 48, h);
 
+                const rightShade = ctx.createLinearGradient(w - 36, 0, w, 0);
+                rightShade.addColorStop(0, 'rgba(120, 74, 4, 0.0)');
+                rightShade.addColorStop(1, 'rgba(110, 66, 4, 0.28)');
+                ctx.fillStyle = rightShade;
+                ctx.fillRect(w - 36, 0, 36, h);
+
+                ctx.fillStyle = 'rgba(255, 252, 224, 0.78)';
+                ctx.fillRect(0, 0, w, 8);
+
+                // Crisp Jet-Black Engraved Header
                 ctx.textAlign = 'center';
-                ctx.fillStyle = '#1c1506';
-                ctx.font = '700 36px "Plus Jakarta Sans", sans-serif';
+                ctx.fillStyle = '#140e02';
+                ctx.font = '700 37px "Plus Jakarta Sans", sans-serif';
                 ctx.fillText('48th EXCEL AWARDS', w / 2, 206);
-                ctx.font = '900 50px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText('BW MARKETING', w / 2, 262);
-                ctx.font = '300 64px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText('WORLD.', w / 2, 328);
+                ctx.font = '900 52px "Plus Jakarta Sans", sans-serif';
+                ctx.fillText('BW MARKETING', w / 2, 264);
+                ctx.font = '400 66px "Plus Jakarta Sans", sans-serif';
+                ctx.fillText('WORLD.', w / 2, 332);
 
-                // Signature Oversized White/Silver Diagonal "X" Emblem behind EX CEL (exact Page 8 detail!)
+                // Embossed 3D-Effect Silver-White Diagonal "X" Emblem (with subtle drop shadow on gold)
                 ctx.save();
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
-                ctx.lineWidth = 34;
+                ctx.shadowColor = 'rgba(72, 44, 0, 0.36)';
+                ctx.shadowBlur = 10;
+                ctx.shadowOffsetX = 3;
+                ctx.shadowOffsetY = 5;
+                ctx.strokeStyle = '#fcfbf7';
+                ctx.lineWidth = 36;
                 ctx.lineCap = 'square';
                 ctx.beginPath();
-                ctx.moveTo(w / 2 - 118, 318);
-                ctx.lineTo(w / 2 + 118, 534);
-                ctx.moveTo(w / 2 + 118, 318);
-                ctx.lineTo(w / 2 - 118, 534);
+                ctx.moveTo(w / 2 - 118, 320);
+                ctx.lineTo(w / 2 + 118, 536);
+                ctx.moveTo(w / 2 + 118, 320);
+                ctx.lineTo(w / 2 - 118, 536);
                 ctx.stroke();
                 ctx.restore();
 
-                // "EX   CEL" flanking the giant white X
-                ctx.fillStyle = '#181205';
-                ctx.font = '300 132px "Plus Jakarta Sans", sans-serif';
+                // "EX   CEL" flanking the giant raised X
+                ctx.fillStyle = '#120c02';
+                ctx.font = '400 132px "Plus Jakarta Sans", sans-serif';
                 ctx.textAlign = 'right';
-                ctx.fillText('EX', w / 2 - 58, 474);
+                ctx.fillText('EX', w / 2 - 58, 476);
                 ctx.textAlign = 'left';
-                ctx.fillText('CEL', w / 2 + 48, 474);
+                ctx.fillText('CEL', w / 2 + 48, 476);
 
                 ctx.textAlign = 'center';
-                ctx.fillStyle = '#1c1506';
-                ctx.font = '400 50px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText('AWARDS', w / 2 - 96, 566);
-                ctx.fillStyle = '#c81922';
-                ctx.font = '600 50px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText('2026', w / 2 + 128, 566);
+                ctx.fillStyle = '#140e02';
+                ctx.font = '500 50px "Plus Jakarta Sans", sans-serif';
+                ctx.fillText('AWARDS', w / 2 - 96, 568);
+                ctx.fillStyle = '#c4141c';
+                ctx.font = '700 50px "Plus Jakarta Sans", sans-serif';
+                ctx.fillText('2026', w / 2 + 128, 568);
 
-                // Crimson Enamel Ribbon Band
-                ctx.fillStyle = '#df1d26';
-                ctx.fillRect(148, 604, w - 296, 134);
+                // Deep Crimson Enamel Ribbon Band
+                ctx.fillStyle = '#d8161f';
+                ctx.fillRect(144, 606, w - 288, 136);
                 ctx.fillStyle = '#ffffff';
                 ctx.font = '800 31px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText('CELEBRATING EXCELLENCE', w / 2, 648);
-                ctx.fillText('IN COMMUNICATION', w / 2, 686);
-                ctx.fillText('& ENGAGEMENT', w / 2, 722);
+                ctx.fillText('CELEBRATING EXCELLENCE', w / 2, 650);
+                ctx.fillText('IN COMMUNICATION', w / 2, 688);
+                ctx.fillText('& ENGAGEMENT', w / 2, 724);
 
-                // Engraved Client & Agency Names
-                ctx.fillStyle = '#171104';
-                ctx.font = '700 44px "Plus Jakarta Sans", sans-serif';
+                // Razor-Sharp Jet-Black Engraved Client & Agency Names
+                ctx.fillStyle = '#110b02';
+                ctx.font = '700 46px "Plus Jakarta Sans", sans-serif';
                 if (clientLine2) {
                     ctx.fillText(clientLine1, w / 2, 926);
-                    ctx.fillText(clientLine2, w / 2, 980);
+                    ctx.fillText(clientLine2, w / 2, 982);
                 } else {
                     ctx.fillText(clientLine1, w / 2, 954);
                 }
 
-                ctx.font = '700 44px "Plus Jakarta Sans", sans-serif';
+                ctx.font = '700 46px "Plus Jakarta Sans", sans-serif';
                 ctx.fillText('Candour', w / 2, 1138);
-                ctx.fillText('Communications', w / 2, 1192);
+                ctx.fillText('Communications', w / 2, 1194);
             }, 1024, 1536);
 
+            // Darker Burnished Satin-Brass Side Return (matches visible angled darker brass side in trophies-reference.jpg!)
             const goldSideMat = new THREE.MeshStandardMaterial({
-                color: 0xf5be36,
-                metalness: 0.92,
-                roughness: 0.18
+                color: 0xd9a126,
+                bumpMap: brushedVBump,
+                bumpScale: 0.0038,
+                metalness: 0.86,
+                roughness: 0.24,
+                envMapIntensity: 1.45
             });
             const goldFrontMat = new THREE.MeshStandardMaterial({
                 map: goldFaceTex,
-                metalness: 0.76,
-                roughness: 0.21
+                bumpMap: brushedVBump,
+                bumpScale: 0.0022,
+                metalness: 0.54,
+                roughness: 0.26,
+                envMapIntensity: 1.35
             });
 
             const taperedGeo = buildTaperedTrapezoidGeometry(1.26, 1.15, 2.54, 0.30);
@@ -1144,15 +1360,18 @@
             pillar.receiveShadow = true;
             group.add(pillar);
 
-            // Gold Transition Collar + Two-Tier Stepped Satin-Obsidian Plinth
-            const collar = new THREE.Mesh(new THREE.BoxGeometry(1.32, 0.045, 0.38), goldSideMat);
+            // Recessed Gold Collar + True Deep Piano-Black Stepped Obsidian Plinth
+            const collar = new THREE.Mesh(new THREE.BoxGeometry(1.30, 0.04, 0.36), goldSideMat);
             collar.position.y = -1.05;
             group.add(collar);
 
-            const blackMat = new THREE.MeshStandardMaterial({
-                color: 0x15141a,
-                roughness: 0.24,
-                metalness: 0.30
+            const blackMat = new THREE.MeshPhysicalMaterial({
+                color: 0x07070a,
+                roughness: 0.18,
+                metalness: 0.16,
+                clearcoat: 0.72,
+                clearcoatRoughness: 0.16,
+                envMapIntensity: 0.95
             });
 
             const upperStep = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.06, 0.48), blackMat);
@@ -1162,23 +1381,27 @@
 
             const plinthTex = makeEngravedTexture((ctx, w, h) => {
                 const bg = ctx.createLinearGradient(0, 0, 0, h);
-                bg.addColorStop(0, '#222029');
-                bg.addColorStop(1, '#121117');
+                bg.addColorStop(0.0, '#14131a');
+                bg.addColorStop(0.14, '#0b0a0f');
+                bg.addColorStop(1.0, '#050508');
                 ctx.fillStyle = bg;
                 ctx.fillRect(0, 0, w, h);
-                ctx.strokeStyle = 'rgba(255,255,255,0.16)';
-                ctx.lineWidth = 3;
-                ctx.strokeRect(18, 18, w - 36, h - 36);
-                ctx.fillStyle = '#f6f3ee';
+                // Crisp subtle top bevel glint on black plinth
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+                ctx.fillRect(0, 0, w, 4);
+                ctx.fillStyle = '#ffffff';
                 ctx.textAlign = 'center';
-                ctx.font = '700 44px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText(baseCategory, w / 2, h / 2 + 15);
+                ctx.font = '700 45px "Plus Jakarta Sans", sans-serif';
+                ctx.fillText(baseCategory, w / 2, h / 2 + 16);
             }, 1024, 240);
 
-            const plinthFrontMat = new THREE.MeshStandardMaterial({
+            const plinthFrontMat = new THREE.MeshPhysicalMaterial({
                 map: plinthTex,
-                roughness: 0.28,
-                metalness: 0.22
+                roughness: 0.20,
+                metalness: 0.14,
+                clearcoat: 0.65,
+                clearcoatRoughness: 0.18,
+                envMapIntensity: 0.85
             });
 
             const base = new THREE.Mesh(
@@ -1190,7 +1413,7 @@
             base.receiveShadow = true;
             group.add(base);
 
-            group.add(createContactShadow(1.86, 0.96));
+            group.add(createContactShadow(1.92, 1.02));
             return group;
         }
 
@@ -1199,11 +1422,14 @@
             const group = new THREE.Group();
             const kSculpture = new THREE.Group();
 
-            // 4A. Brushed Silver/Platinum Architectural "K" Backing Chassis (positioned strictly behind z=0 so it frames the metallic right side-returns without occluding facets)
+            // 4A. Sleek Brushed Gunmetal-Titanium Architectural "K" Backing Chassis (matches dark metallic right V-return in trophies-reference.jpg!)
             const chassisMat = new THREE.MeshStandardMaterial({
-                color: 0xdad6e2,
-                metalness: 0.88,
-                roughness: 0.18
+                color: 0x8d8b96,
+                bumpMap: brushedVBump,
+                bumpScale: 0.0035,
+                metalness: 0.90,
+                roughness: 0.22,
+                envMapIntensity: 1.45
             });
             const kOutline = new THREE.Shape();
             kOutline.moveTo(-0.58, 0.0);
@@ -1215,23 +1441,22 @@
 
             const chassis = new THREE.Mesh(
                 new THREE.ExtrudeGeometry(kOutline, {
-                    depth: 0.20,
+                    depth: 0.22,
                     bevelEnabled: true,
-                    bevelSegments: 3,
+                    bevelSegments: 4,
                     steps: 1,
-                    bevelSize: 0.012,
-                    bevelThickness: 0.012
+                    bevelSize: 0.014,
+                    bevelThickness: 0.014
                 }),
                 chassisMat
             );
-            chassis.position.z = -0.225;
+            chassis.position.z = -0.23;
             chassis.castShadow = true;
             chassis.receiveShadow = true;
             kSculpture.add(chassis);
 
-            // 4B. Watertight 12-Prism 3D Pyramidal Jewel-Toned Acrylic Mosaic (exact Page 8 Kaleido "K" geometry & CCW +Z outward normals!)
+            // 4B. Deep Jewel-Saturated 12-Prism 3D Pyramidal Acrylic Crystal Mosaic (zero pastel washout!)
             function addJewelPrismFacet(p0, p1, p2, apexZ, hex) {
-                // Guarantee strict Counter-Clockwise (CCW) 2D vertex order so normals always face +Z toward the camera
                 let a = p0, b = p1, c = p2;
                 const signedArea2 = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
                 if (signedArea2 < 0) {
@@ -1240,8 +1465,8 @@
                     c = tmp;
                 }
 
-                const zBack = 0.0;
-                const zEdge = 0.052;
+                const zBack = -0.01;
+                const zEdge = 0.048;
                 const cx = (a[0] + b[0] + c[0]) / 3;
                 const cy = (a[1] + b[1] + c[1]) / 3;
 
@@ -1254,7 +1479,6 @@
                     );
                 };
 
-                // 3 angled crystal front pyramid faces (CCW around +Z)
                 const A = [a[0], a[1], zEdge];
                 const B = [b[0], b[1], zEdge];
                 const C = [c[0], c[1], zEdge];
@@ -1263,7 +1487,6 @@
                 pushTri(B, C, P);
                 pushTri(C, A, P);
 
-                // Side depth skirts from zBack (0.0) to zEdge (0.052) so right V-notch & outer edges show solid jewel acrylic thickness
                 const Ab = [a[0], a[1], zBack];
                 const Bb = [b[0], b[1], zBack];
                 const Cb = [c[0], c[1], zBack];
@@ -1281,12 +1504,14 @@
                 const mat = new THREE.MeshPhysicalMaterial({
                     color: hex,
                     emissive: hex,
-                    emissiveIntensity: 0.24,
-                    metalness: 0.06,
-                    roughness: 0.13,
-                    clearcoat: 1.0,
-                    clearcoatRoughness: 0.06,
-                    reflectivity: 1.0
+                    emissiveIntensity: 0.04,
+                    metalness: 0.08,
+                    roughness: 0.15,
+                    clearcoat: 0.92,
+                    clearcoatRoughness: 0.08,
+                    reflectivity: 1.0,
+                    envMapIntensity: 1.15,
+                    flatShading: true
                 });
                 const mesh = new THREE.Mesh(geo, mat);
                 mesh.castShadow = true;
@@ -1294,30 +1519,25 @@
                 return mesh;
             }
 
-            // Exact 10-vertex manifold triangulation of the Kaleido "K" matching Page 8 of the Credentials Deck
             const TL = [-0.58, 1.84], TM = [0.02, 1.84], TR = [0.58, 1.84];
             const UL = [-0.58, 1.20], UC = [-0.26, 1.46], KN = [0.06, 0.92];
             const LL = [-0.58, 0.58], MC = [-0.26, 0.86];
             const BL = [-0.58, 0.0],  BM = [0.02, 0.0],  LR = [0.31, 0.0], BR = [0.60, 0.0];
 
+            // Exact Rich Jewel-Saturated Palette from trophies-reference.jpg + Pronounced 3D Pyramid Relief
             const facets = [
-                // Upper-left electric violet & deep royal purple
-                { tri: [TL, UC, TM], z: 0.128, col: 0x7c12eb },
-                { tri: [TL, UL, UC], z: 0.118, col: 0x4b0d7a },
-                // Upper-right hot fuchsia-magenta & vivid coral-scarlet wing
-                { tri: [TM, UC, KN], z: 0.136, col: 0xf5007e },
-                { tri: [TM, KN, TR], z: 0.126, col: 0xff2b22 },
-                // Central wine-plum & deep ruby-crimson heart facets
-                { tri: [UL, MC, UC], z: 0.124, col: 0x8e0e52 },
-                { tri: [UC, MC, KN], z: 0.142, col: 0xd90b2c },
-                // Mid-to-lower left cerise-pink, blazing tangerine & sunburst gold
-                { tri: [UL, LL, MC], z: 0.122, col: 0xe6146e },
-                { tri: [LL, BL, MC], z: 0.126, col: 0xff6a00 },
-                { tri: [BL, BM, MC], z: 0.122, col: 0xffbe00 },
-                // Lower-center warm amber & lower-right rose-magenta + flame-red wing
-                { tri: [MC, BM, KN], z: 0.134, col: 0xff9100 },
-                { tri: [BM, LR, KN], z: 0.128, col: 0xff0f6b },
-                { tri: [LR, BR, KN], z: 0.122, col: 0xe6192b }
+                { tri: [TL, UC, TM], z: 0.165, col: 0x7410c2 }, // Royal Violet
+                { tri: [TL, UL, UC], z: 0.145, col: 0x41086e }, // Deep Indigo-Plum
+                { tri: [TM, UC, KN], z: 0.178, col: 0xeb0070 }, // Electric Fuchsia-Magenta
+                { tri: [TM, KN, TR], z: 0.155, col: 0xec1e26 }, // Crimson-Scarlet Upper Wing
+                { tri: [UL, MC, UC], z: 0.152, col: 0x850b4c }, // Deep Wine-Berry
+                { tri: [UC, MC, KN], z: 0.186, col: 0xcc0828 }, // Ruby-Red Heart
+                { tri: [UL, LL, MC], z: 0.148, col: 0xe0115f }, // Vivid Cerise
+                { tri: [LL, BL, MC], z: 0.158, col: 0xf55a00 }, // Blazing Tangerine
+                { tri: [BL, BM, MC], z: 0.150, col: 0xfbb600 }, // Rich Sunburst Gold
+                { tri: [MC, BM, KN], z: 0.172, col: 0xf46200 }, // Fiery Marigold-Orange
+                { tri: [BM, LR, KN], z: 0.160, col: 0xea0a5b }, // Hot Rose-Magenta
+                { tri: [LR, BR, KN], z: 0.148, col: 0xd91522 }  // Cardinal Red Lower Wing
             ];
             facets.forEach((f) => {
                 kSculpture.add(addJewelPrismFacet(f.tri[0], f.tri[1], f.tri[2], f.z, f.col));
@@ -1326,53 +1546,68 @@
             kSculpture.position.y = -0.44;
             group.add(kSculpture);
 
-            // 4C. Brushed Champagne-Silver Base Block with high-contrast Red "ET" Square + BRANDEQUITY.com Header
+            // 4C. Heavy Brushed Champagne-Platinum Aluminium Base Block
             const baseTex = makeEngravedTexture((ctx, w, h) => {
-                const g = ctx.createLinearGradient(0, 0, w, h);
-                g.addColorStop(0.0, '#f3efeb');
-                g.addColorStop(0.55, '#e5dfd8');
-                g.addColorStop(1.0, '#cfc7be');
+                const g = ctx.createLinearGradient(0, 0, w * 0.9, h);
+                g.addColorStop(0.0, '#f3eee8');
+                g.addColorStop(0.45, '#e4ddd4');
+                g.addColorStop(0.85, '#d2c9be');
+                g.addColorStop(1.0, '#c2b8ac');
                 ctx.fillStyle = g;
                 ctx.fillRect(0, 0, w, h);
-                addBrushedGrain(ctx, w, h, false, 0.05);
+                addBrushedGrain(ctx, w, h, false, 0.052);
 
-                // Red "ET" badge + underlined BRANDEQUITY.com
-                ctx.fillStyle = '#d91f26';
-                ctx.fillRect(184, 82, 72, 62);
+                // Top & Left Specular Metal Bevel Catchlights + Bottom Grounding Vignette
+                ctx.fillStyle = 'rgba(255, 253, 248, 0.78)';
+                ctx.fillRect(0, 0, w, 6);
+                ctx.fillRect(0, 0, 7, h);
+                ctx.fillStyle = 'rgba(36, 28, 24, 0.22)';
+                ctx.fillRect(w - 8, 0, 8, h);
+                ctx.fillRect(0, h - 9, w, 9);
+
+                // Vivid Red "ET" Square + Crisp Black BRANDEQUITY.com Header
+                ctx.fillStyle = '#d41920';
+                ctx.fillRect(182, 80, 74, 64);
                 ctx.fillStyle = '#ffffff';
                 ctx.textAlign = 'center';
-                ctx.font = '800 40px Georgia, serif';
-                ctx.fillText('ET', 220, 128);
+                ctx.font = '800 41px Georgia, serif';
+                ctx.fillText('ET', 219, 127);
 
                 ctx.textAlign = 'left';
-                ctx.fillStyle = '#14111a';
+                ctx.fillStyle = '#110e16';
                 ctx.font = '700 44px Georgia, serif';
-                ctx.fillText('BRANDEQUITY', 268, 128);
-                ctx.font = '600 28px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText('.com', 612, 128);
-                ctx.fillRect(268, 138, 412, 4);
+                ctx.fillText('BRANDEQUITY', 268, 127);
+                ctx.font = '700 28px "Plus Jakarta Sans", sans-serif';
+                ctx.fillText('.com', 612, 127);
+                ctx.fillRect(268, 138, 412, 4.5);
 
                 ctx.textAlign = 'center';
-                ctx.fillStyle = '#110e16';
-                ctx.font = '800 54px "Plus Jakarta Sans", sans-serif';
+                ctx.fillStyle = '#0d0b12';
+                ctx.font = '800 55px "Plus Jakarta Sans", sans-serif';
                 ctx.fillText('Specialist Agency', w / 2, 258);
                 ctx.fillText('of the Year', w / 2, 322);
 
-                ctx.fillStyle = '#1e1928';
+                ctx.fillStyle = '#181420';
                 ctx.font = '600 44px "Plus Jakarta Sans", sans-serif';
-                ctx.fillText('ET Brand Equity', w / 2, 422);
-                ctx.fillText('Kaleido 2026', w / 2, 478);
+                ctx.fillText('ET Brand Equity', w / 2, 420);
+                ctx.fillText('Kaleido 2026', w / 2, 476);
             }, 900, 560);
 
             const baseSilver = new THREE.MeshStandardMaterial({
-                color: 0xe2dcd4,
-                metalness: 0.62,
-                roughness: 0.28
+                color: 0xd2c9bf,
+                bumpMap: brushedHBump,
+                bumpScale: 0.003,
+                metalness: 0.68,
+                roughness: 0.26,
+                envMapIntensity: 1.25
             });
             const baseFront = new THREE.MeshStandardMaterial({
                 map: baseTex,
-                metalness: 0.22,
-                roughness: 0.32
+                bumpMap: brushedHBump,
+                bumpScale: 0.0018,
+                metalness: 0.36,
+                roughness: 0.29,
+                envMapIntensity: 1.15
             });
             const kBase = new THREE.Mesh(
                 new THREE.BoxGeometry(1.48, 0.96, 0.46),
@@ -1383,7 +1618,7 @@
             kBase.receiveShadow = true;
             group.add(kBase);
 
-            group.add(createContactShadow(1.86, 0.96));
+            group.add(createContactShadow(1.92, 1.02));
             return group;
         }
 
@@ -1394,17 +1629,18 @@
             buildKaleidoAcrylic3DTrophy()
         ];
 
+        // Balanced Exhibition Spacing on the Compact Right-Aligned Travertine Plinth
         const getFinalSlots = (offsetX) => [
-            { x: offsetX - 2.48, y: 0.0, z: -0.18, rotY: 0.20 },
-            { x: offsetX - 0.82, y: 0.0, z: 0.18, rotY: 0.07 },
-            { x: offsetX + 0.82, y: 0.0, z: 0.18, rotY: -0.07 },
-            { x: offsetX + 2.48, y: 0.0, z: -0.18, rotY: -0.20 }
+            { x: offsetX - 2.24, y: 0.0, z: -0.14, rotY: 0.18 },
+            { x: offsetX - 0.74, y: 0.0, z: 0.15, rotY: 0.07 },
+            { x: offsetX + 0.74, y: 0.0, z: 0.15, rotY: -0.07 },
+            { x: offsetX + 2.24, y: 0.0, z: -0.14, rotY: -0.18 }
         ];
         let finalSlots = getFinalSlots(galleryOffsetX);
 
         trophies.forEach((t) => {
-            t.position.set(galleryOffsetX + 9.6, 0.16, 1.4);
-            t.rotation.set(0.06, -Math.PI * 1.12, 0.04);
+            t.position.set(galleryOffsetX + 9.4, 0.16, 1.2);
+            t.rotation.set(0.05, -Math.PI * 1.12, 0.03);
             awScene.add(t);
         });
 
@@ -1442,10 +1678,10 @@
 
         const renderAwardsFrame = (refreshShadow = true) => {
             if (refreshShadow) awRenderer.shadowMap.needsUpdate = true;
-            keySpot.position.x = 5.4 + pointerNormX * 1.85;
-            keySpot.position.y = 10.2 - pointerNormY * 1.05;
-            awCamera.position.x = galleryOffsetX * 0.18 + pointerNormX * 0.34;
-            awCamera.lookAt(galleryOffsetX * 0.45 + pointerNormX * 0.16, -0.18 + pointerNormY * 0.10, 0);
+            keySpot.position.x = -2.4 + pointerNormX * 2.1;
+            keySpot.position.y = 7.6 - pointerNormY * 0.95;
+            awCamera.position.x = galleryOffsetX * 0.24 + pointerNormX * 0.32;
+            awCamera.lookAt(galleryOffsetX * 0.56 + pointerNormX * 0.14, -0.06 + pointerNormY * 0.08, 0);
             awRenderer.render(awScene, awCamera);
         };
 
@@ -1483,9 +1719,9 @@
 
         gsap.fromTo(
             trophies[0].position,
-            { x: galleryOffsetX + 9.6 },
+            { x: galleryOffsetX + 9.4 },
             {
-                x: galleryOffsetX + 3.6,
+                x: galleryOffsetX + 3.4,
                 ease: 'none',
                 scrollTrigger: {
                     trigger: '#awardsPinnedStage',
@@ -1562,8 +1798,8 @@
         awardsMasterTL.to(
             awCamera.position,
             {
-                z: 11.05,
-                y: 1.12,
+                z: 11.55,
+                y: 0.16,
                 duration: 0.7,
                 ease: 'sine.inOut'
             },
@@ -1574,6 +1810,9 @@
 
         window.addEventListener('resize', () => {
             const { w, h } = setAwardsSize();
+            galleryOffsetX = getGalleryOffsetX();
+            pedestal.position.x = galleryOffsetX;
+            pedRing.position.x = galleryOffsetX;
             if (stageEl) cachedStageRect = stageEl.getBoundingClientRect();
             awCamera.aspect = w / h;
             awCamera.updateProjectionMatrix();
