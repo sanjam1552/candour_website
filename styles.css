@@ -62,6 +62,7 @@ body {
 
 img {
     max-width: 100%;
+    height: auto;
     display: block;
 }
 
@@ -174,42 +175,19 @@ button {
 }
 
 .candour-logo-img {
-    height: 30px;
+    height: 36px;
     width: auto;
     object-fit: contain;
-    transition: filter 0.35s ease;
+    transition: height 0.35s ease, filter 0.35s ease;
+}
+
+.editorial-header.is-condensed .candour-logo-img {
+    height: 30px;
 }
 
 /* Keep Candour wordmark crisp on both dark and light header stages */
 .editorial-header:not(.on-light) .candour-logo-img {
     filter: brightness(1.12);
-}
-
-.header-divider {
-    width: 1px;
-    height: 20px;
-    background: rgba(255, 255, 255, 0.22);
-    transition: background-color 0.35s ease;
-}
-
-.editorial-header.on-light .header-divider {
-    background: rgba(17, 15, 24, 0.16);
-}
-
-.bbn-header-badge {
-    display: inline-flex;
-    align-items: center;
-    font-size: 0.66rem;
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: rgba(249, 245, 248, 0.68);
-    white-space: nowrap;
-    transition: color 0.35s ease;
-}
-
-.editorial-header.on-light .bbn-header-badge {
-    color: var(--ink-muted);
 }
 
 .primary-nav {
@@ -478,7 +456,9 @@ button {
 .hero-headline .line-mask {
     display: block;
     overflow: hidden;
-    padding-bottom: 0.08em;
+    padding-bottom: 0.22em;
+    margin-bottom: -0.13em;
+    padding-right: 0.14em;
 }
 
 .hero-headline .line-reveal {
@@ -487,7 +467,14 @@ button {
 }
 
 .hero-headline .chromatic-italic {
+    display: inline-block;
     font-style: italic;
+    padding-top: 0.06em;
+    margin-top: -0.06em;
+    padding-right: 0.15em;
+    margin-right: -0.10em;
+    padding-bottom: 0.24em;
+    margin-bottom: -0.24em;
     background: linear-gradient(95deg, #ff9d47 0%, #ff3b8d 52%, #e60099 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -1895,10 +1882,9 @@ button {
 
 /* Preserve original brand colours, proportions & crispness */
 .brand-mark-tile img {
-    max-height: 40px;
+    height: 36px;
     max-width: 132px;
     width: auto;
-    height: auto;
     object-fit: contain;
     transition: transform 0.3s cubic-bezier(0.19, 1, 0.22, 1);
 }
@@ -2875,10 +2861,15 @@ button {
 
 .endorsement-brand-logo {
     margin-left: auto;
-    height: 28px;
-    max-width: 112px;
+    height: 32px;
+    max-width: 120px;
     width: auto;
     object-fit: contain;
+}
+
+.featured-endorsement .endorsement-brand-logo {
+    height: 40px;
+    max-width: 140px;
 }
 
 .endorsement-columns {
@@ -3180,7 +3171,7 @@ button {
 }
 
 .colophon-logo {
-    height: 22px;
+    height: 20px;
     width: auto;
     object-fit: contain;
 }
@@ -3455,9 +3446,9 @@ button {
 }
 
 @media (max-width: 680px) {
-    .bbn-header-badge,
-    .header-divider {
-        display: none;
+    .candour-logo-img,
+    .editorial-header.is-condensed .candour-logo-img {
+        height: 28px;
     }
     .about-editorial-gallery,
     .dossier-kpi-row,

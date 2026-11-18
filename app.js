@@ -2443,7 +2443,96 @@
     }
 
     // ------------------------------------------------------------------------
-    // 12. DIRECT ENQUIRY SUBMISSION TO CANDOUR LEADERSHIP
+    // 12. RELIABLE IMAGE PRE-WARMER & TRANSIENT NETWORK RETRY
+    // ------------------------------------------------------------------------
+    (function initReliableImageLoader() {
+        const allImgs = Array.from(document.querySelectorAll('img'));
+
+        // Auto-retry up to 2 times if a transient mobile/CDN hiccup drops an image request
+        allImgs.forEach((img) => {
+            img.addEventListener('error', () => {
+                const baseSrc = img.dataset.origSrc || img.getAttribute('src');
+                if (!baseSrc) return;
+                img.dataset.origSrc = baseSrc;
+                const attempt = (parseInt(img.dataset.retryCount || '0', 10) || 0) + 1;
+                if (attempt > 2) return;
+                img.dataset.retryCount = String(attempt);
+                setTimeout(() => {
+                    const sep = baseSrc.includes('?') ? '&' : '?';
+                    img.src = `${baseSrc}${sep}retry=${attempt}`;
+                }, 350 * attempt);
+            });
+        });
+
+        const lazyImgs = allImgs.filter((img) => img.loading === 'lazy');
+
+        // Wide-margin observer unaffected by GSAP ScrollTrigger pin-spacers
+        let imgObserver = null;
+        if ('IntersectionObserver' in window && lazyImgs.length) {
+            imgObserver = new IntersectionObserver((entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        const target = entry.target;
+                        target.loading = 'eager';
+                        if (typeof target.decode === 'function') {
+                            target.decode().catch(() => {});
+                        }
+                        imgObserver.unobserve(target);
+                    }
+                });
+            }, { rootMargin: '2500px 0px' });
+            lazyImgs.forEach((img) => imgObserver.observe(img));
+        }
+
+        // Background wave pre-warmer so all campaign, agency & service visuals are cached early
+        let warmStarted = false;
+        const startBackgroundWarm = () => {
+            if (warmStarted) return;
+            warmStarted = true;
+
+            const previewUrls = [];
+            document.querySelectorAll('[data-preview-img]').forEach((el) => {
+                const u = el.getAttribute('data-preview-img');
+                if (u && !previewUrls.includes(u)) previewUrls.push(u);
+            });
+
+            let imgIdx = 0;
+            let urlIdx = 0;
+
+            const warmBatch = () => {
+                let count = 0;
+                while (imgIdx < lazyImgs.length && count < 4) {
+                    const img = lazyImgs[imgIdx++];
+                    if (img && !img.complete) {
+                        img.loading = 'eager';
+                        if (imgObserver) imgObserver.unobserve(img);
+                        count++;
+                    }
+                }
+                while (urlIdx < previewUrls.length && count < 4) {
+                    const pre = new Image();
+                    pre.decoding = 'async';
+                    pre.src = previewUrls[urlIdx++];
+                    count++;
+                }
+                if (imgIdx < lazyImgs.length || urlIdx < previewUrls.length) {
+                    setTimeout(warmBatch, 80);
+                }
+            };
+
+            setTimeout(warmBatch, 300);
+        };
+
+        if (document.readyState === 'complete') {
+            startBackgroundWarm();
+        } else {
+            window.addEventListener('load', startBackgroundWarm, { once: true });
+            setTimeout(startBackgroundWarm, 1400);
+        }
+    })();
+
+    // ------------------------------------------------------------------------
+    // 13. DIRECT ENQUIRY SUBMISSION TO CANDOUR LEADERSHIP
     // ------------------------------------------------------------------------
     const enquiryForm = document.getElementById('candourEnquiryForm');
     if (enquiryForm) {
